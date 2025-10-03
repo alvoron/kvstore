@@ -84,14 +84,17 @@ See [REPLICATION.md](docs/REPLICATION.md) for detailed replication setup, config
 
 ## Kubernetes Deployment
 
-Deploy kvstore on Kubernetes with automatic pod restart and failover capabilities:
+Deploy kvstore on Kubernetes with automatic pod restart and high availability:
 
-- **StatefulSets**: Stable network identities and persistent storage
-- **Automatic Recovery**: Pods automatically restart on failure with data preserved
-- **Service Discovery**: DNS-based pod-to-pod communication
-- **Health Monitoring**: Liveness and readiness probes
+**Features:**
+- **StatefulSets**: Stable network identities and persistent storage for each pod
+- **Automatic Recovery**: Pods automatically restart on failure (~30-60s downtime)
+- **Data Persistence**: PersistentVolumes preserve data across pod restarts
+- **Service Discovery**: DNS-based pod-to-pod communication for replication
+- **Health Monitoring**: Liveness and readiness probes detect failures
+- **Manual Master Promotion**: ConfigMap-based master selection
 
-See [KUBERNETES.md](docs/KUBERNETES.md) for complete Kubernetes deployment guide with manifests and failover strategies.
+See [KUBERNETES.md](docs/KUBERNETES.md) for complete deployment guide, architecture diagram, failover scenarios, and troubleshooting.
 
 ## Architecture
 

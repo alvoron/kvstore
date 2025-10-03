@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kvstore-config
+  namespace: kvstore
+data:
+  # Which pod ordinal is master (0, 1, or 2)
+  MASTER_ORDINAL: "0"
+  
+  # Replication settings
+  REPLICATION_MODE: "async"
+  REPLICATION_ENABLED: "true"

@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kvstore-netpol
+  namespace: kvstore
+spec:
+  podSelector:
+    matchLabels:
+      app: kvstore
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kvstore
+    - podSelector:
+        matchLabels:
+          app: kvstore
+    ports:
+    - protocol: TCP
+      port: 5555

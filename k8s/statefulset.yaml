@@ -1,0 +1,173 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kvstore
+  namespace: kvstore
+spec:
+  serviceName: kvstore-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kvstore
+  
+  template:
+    metadata:
+      labels:
+        app: kvstore
+    spec:
+      # Spread pods across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - kvstore
+              topologyKey: kubernetes.io/hostname
+      
+      initContainers:
+      - name: init-kvstore
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          #!/bin/sh
+          # Determine pod ordinal from hostname
+          POD_ORDINAL=${HOSTNAME##*-}
+          MASTER_ORDINAL=$(cat /config/MASTER_ORDINAL)
+          
+          echo "Pod ordinal: $POD_ORDINAL"
+          echo "Master ordinal: $MASTER_ORDINAL"
+          
+          if [ "$POD_ORDINAL" = "$MASTER_ORDINAL" ]; then
+            echo "master" > /pod-info/role
+            echo "master" > /pod-info/label-role
+            echo "This pod will be MASTER"
+          else
+            echo "replica" > /pod-info/role
+            echo "replica" > /pod-info/label-role
+            echo "This pod will be REPLICA"
+          fi
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: pod-info
+          mountPath: /pod-info
+      
+      containers:
+      - name: kvstore
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          #!/bin/bash
+          set -e
+          
+          # Install kvstore (assumes code is mounted or copied in)
+          pip install --quiet -e /app
+          
+          # Read configuration
+          ROLE=$(cat /pod-info/role)
+          POD_ORDINAL=${HOSTNAME##*-}
+          REPLICATION_MODE=$(cat /config/REPLICATION_MODE)
+          REPLICATION_ENABLED=$(cat /config/REPLICATION_ENABLED)
+          
+          # Build replica addresses (exclude self)
+          REPLICAS=""
+          for i in 0 1 2; do
+            if [ "$i" != "$POD_ORDINAL" ]; then
+              if [ -n "$REPLICAS" ]; then
+                REPLICAS="$REPLICAS,"
+              fi
+              REPLICAS="${REPLICAS}kvstore-${i}.kvstore-headless.kvstore.svc.cluster.local:5555"
+            fi
+          done
+          
+          echo "========================================="
+          echo "Starting kvstore pod: ${HOSTNAME}"
+          echo "Role: ${ROLE}"
+          echo "Replication enabled: ${REPLICATION_ENABLED}"
+          echo "Replication mode: ${REPLICATION_MODE}"
+          echo "Replicas: ${REPLICAS}"
+          echo "========================================="
+          
+          # Start server based on role
+          if [ "$ROLE" = "master" ]; then
+            exec python -m kvstore.cli.server_cli \
+              --host 0.0.0.0 \
+              --port 5555 \
+              --data-dir /data \
+              --replicas "$REPLICAS" \
+              --replication-mode "$REPLICATION_MODE"
+          else
+            exec python -m kvstore.cli.server_cli \
+              --host 0.0.0.0 \
+              --port 5555 \
+              --data-dir /data \
+              --replica
+          fi
+        
+        ports:
+        - containerPort: 5555
+          name: kvstore
+        
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: app
+          mountPath: /app
+          readOnly: true
+        - name: pod-info
+          mountPath: /pod-info
+        - name: config
+          mountPath: /config
+        
+        livenessProbe:
+          tcpSocket:
+            port: 5555
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          tcpSocket:
+            port: 5555
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      
+      volumes:
+      - name: app
+        hostPath:
+          path: /path/to/kvstore  # Replace with your kvstore source path
+          type: Directory
+      - name: pod-info
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: kvstore-config
+  
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: fast-ssd  # Use your storage class
+      resources:
+        requests:
+          storage: 50Gi

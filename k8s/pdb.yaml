@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kvstore-pdb
+  namespace: kvstore
+spec:
+  minAvailable: 2  # Keep at least 2 pods running
+  selector:
+    matchLabels:
+      app: kvstore
