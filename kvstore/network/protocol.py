@@ -13,7 +13,14 @@ class Protocol:
     @staticmethod
     def unescape(data: bytes) -> bytes:
         """Unescape special characters in data."""
-        return data.replace(b'\\t', b'\t').replace(b'\\r', b'\r').replace(b'\\n', b'\n').replace(b'\\\\', b'\\')
+        # Use placeholder to avoid double-unescaping
+        # First replace \\\\ with a placeholder that won't appear in data
+        data = data.replace(b'\\\\', b'\x00')  # NULL byte as placeholder
+        data = data.replace(b'\\n', b'\n')
+        data = data.replace(b'\\r', b'\r')
+        data = data.replace(b'\\t', b'\t')
+        data = data.replace(b'\x00', b'\\')  # Restore backslashes
+        return data
     
     @staticmethod
     def parse_command(message: bytes) -> Tuple[str, Optional[bytes], Optional[bytes]]:
