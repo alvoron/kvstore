@@ -36,8 +36,9 @@ class KVClient:
     def put(self, key: str, value: str) -> bool:
         """Put key-value pair."""
         from .protocol import Protocol
-        escaped_value = Protocol.escape(value.encode()).decode('utf-8', errors='replace')
-        command = f'PUT {key} {escaped_value}'.encode()
+        # Build command purely with bytes - escape the value bytes
+        escaped_value = Protocol.escape(value.encode())
+        command = b'PUT ' + key.encode() + b' ' + escaped_value
         response = self._send_command(command)
         return response == b'OK'
     
@@ -47,14 +48,13 @@ class KVClient:
             raise ValueError("Keys and values must have the same length")
         
         from .protocol import Protocol
-        # Escape each value before joining
-        escaped_values = [Protocol.escape(v.encode()).decode('utf-8', errors='replace') for v in values]
+        # Escape each value before joining - keep as bytes
+        escaped_values = [Protocol.escape(v.encode()) for v in values]
         
-        # Join keys and values with Config.BATCH_SEPARATOR
-        separator = Config.BATCH_SEPARATOR.decode()
-        keys_str = separator.join(keys)
-        values_str = separator.join(escaped_values)
-        command = f'BATCHPUT {keys_str} {values_str}'.encode()
+        # Join keys and values with Config.BATCH_SEPARATOR - all as bytes
+        keys_bytes = Config.BATCH_SEPARATOR.join([k.encode() for k in keys])
+        values_bytes = Config.BATCH_SEPARATOR.join(escaped_values)
+        command = b'BATCHPUT ' + keys_bytes + b' ' + values_bytes
         response = self._send_command(command)
         return response == b'OK'
     
