@@ -25,3 +25,13 @@ class Config:
     CONNECTION_RECV_BUFFER = 4096  # Buffer size for connection handler
     MESSAGE_DELIMITER = b'\n'  # Message delimiter in protocol
     BATCH_SEPARATOR = b'||'  # Separator for batch operations
+    
+    # Replication settings
+    REPLICATION_ENABLED = False  # Enable/disable replication
+    REPLICATION_MODE = 'async'  # 'async' or 'sync'
+    REPLICA_ADDRESSES = []  # List of (host, port) tuples for replica nodes
+    REPLICATION_MAX_RETRIES = 3  # Maximum retry attempts per operation
+    REPLICATION_QUEUE_SIZE = 10000  # Maximum size of replication queue
+    REPLICATION_MAX_FAILURES = 3  # Max consecutive failures before marking unhealthy
+    REPLICATION_HEALTH_CHECK_INTERVAL = 30  # Seconds between health checks
+    REPLICATION_TIMEOUT = 5.0  # Socket timeout for replication in seconds

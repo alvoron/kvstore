@@ -12,10 +12,11 @@ from ..utils.config import Config
 class KVServer:
     """Network server for KV store using simple text protocol."""
     
-    def __init__(self, host: str = None, port: int = None, data_dir: str = None):
+    def __init__(self, host: str = None, port: int = None, data_dir: str = None, is_replica: bool = False):
         self.host = host or Config.HOST
         self.port = port or Config.PORT
-        self.store = KVStore(data_dir or Config.DATA_DIR)
+        self.is_replica = is_replica
+        self.store = KVStore(data_dir or Config.DATA_DIR, is_replica=is_replica)
         self.server_socket = None
         self.protocol = Protocol()
         self.running = False
@@ -24,6 +25,27 @@ class KVServer:
         """Process client message."""
         try:
             command, key, value = self.protocol.parse_command(message)
+            
+            # Handle REPLICATE commands (only accepted on replica nodes)
+            if command.startswith('REPLICATE_'):
+                if not self.is_replica:
+                    return self.protocol.format_error('REPLICATE commands only accepted on replica nodes')
+                
+                if command == 'REPLICATE_PUT':
+                    success = self.store.put(key, value)
+                    return self.protocol.format_response(success)
+                
+                elif command == 'REPLICATE_BATCHPUT':
+                    keys = key.split(Config.BATCH_SEPARATOR)
+                    values = value.split(Config.BATCH_SEPARATOR)
+                    if len(keys) != len(values):
+                        return self.protocol.format_error('Keys and values count mismatch')
+                    success = self.store.batch_put(keys, values)
+                    return self.protocol.format_response(success)
+                
+                elif command == 'REPLICATE_DELETE':
+                    success = self.store.delete(key)
+                    return self.protocol.format_response(success)
             
             if command == 'PUT':
                 success = self.store.put(key, value)

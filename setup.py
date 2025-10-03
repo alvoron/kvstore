@@ -11,4 +11,10 @@ setup(
         ],
     },
     python_requires='>=3.7',
+    extras_require={
+        'test': [
+            'pytest>=7.0.0',
+            'pytest-timeout>=2.1.0',
+        ],
+    },
 )

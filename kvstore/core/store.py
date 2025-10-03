@@ -14,9 +14,10 @@ from ..utils.config import Config
 class KVStore:
     """Core Key/Value store implementation."""
     
-    def __init__(self, data_dir: str = './kvstore_data'):
+    def __init__(self, data_dir: str = './kvstore_data', is_replica: bool = False):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
+        self.is_replica = is_replica
         
         # Initialize components
         self.wal = WAL(str(self.data_dir / 'wal.log'))
@@ -32,11 +33,48 @@ class KVStore:
         # Recover from crash if needed
         self._recover()
         
+        # Initialize replication (only if not a replica and replication is enabled)
+        self.replicator = None
+        if not is_replica and Config.REPLICATION_ENABLED:
+            self._init_replication()
+        
         # Background checkpoint thread
         self.checkpoint_interval = Config.CHECKPOINT_INTERVAL
         self.running = True
         self.checkpoint_thread = threading.Thread(target=self._checkpoint_loop, daemon=True)
         self.checkpoint_thread.start()
+    
+    def _init_replication(self):
+        """Initialize replication components."""
+        try:
+            from ..replication import Replicator, ReplicaManager
+            
+            # Create replica manager
+            self.replica_manager = ReplicaManager(
+                max_failures=Config.REPLICATION_MAX_FAILURES,
+                health_check_interval=Config.REPLICATION_HEALTH_CHECK_INTERVAL
+            )
+            
+            # Add configured replicas
+            for host, port in Config.REPLICA_ADDRESSES:
+                self.replica_manager.add_replica(host, port)
+            
+            # Create replicator
+            self.replicator = Replicator(
+                replica_manager=self.replica_manager,
+                mode=Config.REPLICATION_MODE,
+                max_retries=Config.REPLICATION_MAX_RETRIES,
+                queue_size=Config.REPLICATION_QUEUE_SIZE
+            )
+            
+            # Start replication
+            self.replicator.start()
+            self.replica_manager.start_health_monitoring()
+            
+            print(f"[KVStore] Replication enabled in {Config.REPLICATION_MODE} mode with {len(Config.REPLICA_ADDRESSES)} replicas")
+        except Exception as e:
+            print(f"[KVStore] Failed to initialize replication: {e}")
+            self.replicator = None
     
     def _recover(self):
         """Recover from crash by replaying WAL."""
@@ -77,6 +115,10 @@ class KVStore:
                 # Update index
                 self.index.put(key, offset, length)
             
+            # Phase 3: Replicate to replicas (if not a replica and replication enabled)
+            if self.replicator and not self.is_replica:
+                self.replicator.replicate_put(key, value)
+            
             return True
         except Exception as e:
             print(f"Error in put: {e}")
@@ -101,6 +143,10 @@ class KVStore:
                     
                     # Update index
                     self.index.put(key, offset, length)
+            
+            # Phase 3: Replicate to replicas (if not a replica and replication enabled)
+            if self.replicator and not self.is_replica:
+                self.replicator.replicate_batch_put(keys, values)
             
             return True
         except Exception as e:
@@ -169,6 +215,10 @@ class KVStore:
                 # Remove from index
                 self.index.delete(key)
             
+            # Phase 3: Replicate to replicas (if not a replica and replication enabled)
+            if self.replicator and not self.is_replica:
+                self.replicator.replicate_delete(key)
+            
             return True
         except Exception as e:
             print(f"Error in delete: {e}")
@@ -178,6 +228,12 @@ class KVStore:
         """Clean shutdown."""
         self.running = False
         self.checkpoint_thread.join()
+        
+        # Stop replication if enabled
+        if self.replicator:
+            self.replicator.stop()
+            self.replica_manager.stop_health_monitoring()
+        
         self.index.save()
         self.wal.close()
         self.data_file.close()

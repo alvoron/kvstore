@@ -11,9 +11,35 @@ class Protocol:
         Parse protocol message.
         Returns (command, key, value)
         For BATCHPUT: returns (command, keys_joined, values_joined) where parts are separated by ||
+        For REPLICATE: returns ('REPLICATE_<subcommand>', key, value) - handles master-to-replica commands
         """
         parts = message.split(b' ', 2)
         command = parts[0].upper().decode('utf-8')
+        
+        # Handle REPLICATE commands (master-to-replica communication)
+        if command == 'REPLICATE':
+            if len(parts) < 2:
+                raise ValueError('REPLICATE requires subcommand')
+            subparts = message.split(b' ', 3)
+            subcommand = subparts[1].upper().decode('utf-8')
+            
+            if subcommand == 'PUT':
+                if len(subparts) != 4:
+                    raise ValueError('REPLICATE PUT requires key and value')
+                return f'REPLICATE_{subcommand}', subparts[2], subparts[3]
+            
+            elif subcommand == 'BATCHPUT':
+                if len(subparts) != 4:
+                    raise ValueError('REPLICATE BATCHPUT requires keys and values')
+                return f'REPLICATE_{subcommand}', subparts[2], subparts[3]
+            
+            elif subcommand == 'DELETE':
+                if len(subparts) != 3:
+                    raise ValueError('REPLICATE DELETE requires key')
+                return f'REPLICATE_{subcommand}', subparts[2], None
+            
+            else:
+                raise ValueError(f'Unknown REPLICATE subcommand: {subcommand}')
         
         if command == 'PUT':
             if len(parts) != 3:

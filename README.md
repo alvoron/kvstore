@@ -1,12 +1,13 @@
 # kvstore
 
-A high-performance, thread-safe key-value store with Write-Ahead Logging (WAL) and network interface.
+A high-performance, thread-safe key-value store with Write-Ahead Logging (WAL), data replication, and network interface.
 
 ## Features
 
 - **Thread-safe operations**: True concurrent reads with exclusive writes using Reader-Writer Lock
 - **Two-phase locking**: Separate WAL lock prevents write starvation in read-heavy workloads
 - **Write-Ahead Logging (WAL)**: Ensures durability and crash recovery
+- **Data replication**: Master-slave replication with async/sync modes for high availability
 - **In-memory indexing**: Fast lookups with periodic persistence
 - **Background checkpointing**: Automatic index saves every 10 seconds
 - **Network protocol**: Simple TCP-based text protocol
@@ -23,9 +24,19 @@ From project root
 pip install -e .
 ```
 
-Run server
+Option 1: Run standalone server without replication
 ```
 python -m kvstore.cli.server_cli
+```
+
+Option 2: Run server with 2 replicas
+```
+# Start replicas first
+python -m kvstore.cli.server_cli --port 5556 --data-dir ./replica1 --replica
+python -m kvstore.cli.server_cli --port 5557 --data-dir ./replica2 --replica
+
+# Start master
+python -m kvstore.cli.server_cli --replicas localhost:5556,localhost:5557
 ```
 
 Run client command
@@ -55,10 +66,32 @@ python -m kvstore.cli.client_cli delete <key>
 
 ## Configuration
 
-All system parameters are centralized in `kvstore/utils/config.py`.\
+All system parameters are centralized in `kvstore/utils/config.py`.
 You can customize these values by importing and modifying the Config class before instantiating server/client objects.
 
 See [CONFIGURATION.md](docs/CONFIGURATION.md) for detailed configuration options and examples.
+
+## Replication
+
+The kvstore supports master-slave replication for high availability and data redundancy. Features include:
+
+- **Async/Sync Modes**: Choose between fast async replication or strong consistency with sync mode
+- **Automatic Retry**: Failed replications are retried automatically
+- **Health Monitoring**: Unhealthy replicas are detected and skipped
+- **Simple Setup**: Configure replicas via CLI or Config class
+
+See [REPLICATION.md](docs/REPLICATION.md) for detailed replication setup, configuration, and best practices.
+
+## Kubernetes Deployment
+
+Deploy kvstore on Kubernetes with automatic pod restart and failover capabilities:
+
+- **StatefulSets**: Stable network identities and persistent storage
+- **Automatic Recovery**: Pods automatically restart on failure with data preserved
+- **Service Discovery**: DNS-based pod-to-pod communication
+- **Health Monitoring**: Liveness and readiness probes
+
+See [KUBERNETES.md](docs/KUBERNETES.md) for complete Kubernetes deployment guide with manifests and failover strategies.
 
 ## Architecture
 
@@ -66,9 +99,9 @@ The architecture includes:
 
 - **Core Layer**: KVStore, WAL, DataFile, Index, RWLock
 - **Network Layer**: KVServer, KVClient, Protocol, ConnectionHandler
+- **Replication Layer**: Replicator, ReplicaManager, ReplicaNode
 - **Two-Phase Locking**: Separate WAL lock prevents write starvation
 
-The system uses a sophisticated two-phase locking strategy with Reader-Writer locks for optimal concurrency in read-heavy workloads.\
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation, UML diagrams, and sequence diagrams for all operations.
 
 
