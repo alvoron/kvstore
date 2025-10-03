@@ -4,7 +4,12 @@ A high-performance, thread-safe key-value store with Write-Ahead Logging (WAL) a
 
 ## Features
 
-- **Thread-safe operations**: Concurrent reads with exclusive writes using locks
+- **Thread-safe operations**: True concurrent reads with exclusive writes using Reader-Wr    %% Notes
+    note for KVStore "Two-phase locking strategy:\\nwal_lock for WAL writes\\nrwlock for data/index access\\nAllows concurrent reads\\nBackground checkpoint every 10 seconds"
+    note for RWLock "Multiple readers can hold lock simultaneously\\nWriters get exclusive access"
+    note for WAL "Write-Ahead Log ensures durability\\nReplayed on recovery\\nHas separate lock for better concurrency"
+    note for Index "In-memory hash index\\nPeriodically persisted to disk"Lock
+- **Two-phase locking**: Separate WAL lock prevents write starvation in read-heavy workloads
 - **Write-Ahead Logging (WAL)**: Ensures durability and crash recovery
 - **In-memory indexing**: Fast lookups with periodic persistence
 - **Background checkpointing**: Automatic index saves every 10 seconds
@@ -12,6 +17,8 @@ A high-performance, thread-safe key-value store with Write-Ahead Logging (WAL) a
 - **Batch operations**: Efficient bulk insertions with `batchput`
 - **Range queries**: Retrieve multiple key-value pairs with `readrange`
 - **Graceful shutdown**: Ctrl+C handling with proper cleanup
+- **Concurrent reads**: Multiple clients can read simultaneously without blocking each other
+- **Write optimization**: WAL writes don't wait for readers to finish
 
 ## Install and run
 From project root
@@ -57,6 +64,32 @@ python -m kvstore.cli.client_cli delete <key>
 2. **WAL (Write-Ahead Log)**: Logs all write operations before applying them
 3. **DataFile**: Append-only storage file for key-value pairs
 4. **Index**: In-memory hash map for fast key lookups
+
+### Locking Strategy
+
+The system uses a sophisticated **two-phase locking strategy** to optimize performance:
+
+#### 1. Reader-Writer Lock (RWLock)
+- **Read operations**: Multiple readers can acquire the lock simultaneously
+- **Write operations**: Writers get exclusive access (no readers or other writers)
+- **Use case**: Protects data file reads/writes and index updates
+
+#### 2. Separate WAL Lock
+- **Independent locking**: WAL writes use a separate `threading.Lock()`
+- **Problem solved**: In read-heavy workloads, writers would wait for all readers to finish before even logging to WAL
+- **Benefit**: WAL writes can proceed immediately without waiting for readers
+
+#### Write Operation Flow (Two-Phase):
+```
+Phase 1: Acquire wal_lock → Log to WAL → Release wal_lock
+Phase 2: Acquire write_lock → Update DataFile & Index → Release write_lock
+```
+
+**Why this matters:**
+- In a read-heavy workload, many readers might be active
+- Without separate locks: Writer waits for readers → WAL logging delayed → Other writers blocked
+- With separate locks: WAL logging proceeds immediately → Better write throughput
+- Durability preserved: WAL is written before data/index updates
 
 ### Network Components
 
@@ -123,8 +156,8 @@ classDiagram
         -wal: WAL
         -data_file: DataFile
         -index: Index
-        -write_lock: Lock
-        -read_lock: RLock
+        -rwlock: RWLock
+        -wal_lock: Lock
         -running: bool
         -checkpoint_thread: Thread
         -_recover()
@@ -135,6 +168,17 @@ classDiagram
         +read_key_range(start_key: bytes, end_key: bytes) dict
         +delete(key: bytes) bool
         +close()
+    }
+    
+    class RWLock {
+        -_readers: int
+        -_writers: int
+        -_read_ready: Condition
+        -_write_ready: Condition
+        +acquire_read()
+        +release_read()
+        +acquire_write()
+        +release_write()
     }
     
     class WAL {
@@ -178,9 +222,11 @@ classDiagram
     KVStore --> WAL : uses
     KVStore --> DataFile : uses
     KVStore --> Index : uses
+    KVStore --> RWLock : uses
     
     %% Notes
-    note for KVStore "Thread-safe with write_lock and read_lock\nBackground checkpoint every 10 seconds"
+    note for KVStore "Thread-safe with Reader-Writer Lock\nAllows concurrent reads\nBackground checkpoint every 10 seconds"
+    note for RWLock "Multiple readers can hold lock simultaneously\nWriters get exclusive access"
     note for WAL "Write-Ahead Log ensures durability\nReplayed on recovery"
     note for Index "In-memory hash index\nPeriodically persisted to disk"
 ```
@@ -211,8 +257,9 @@ sequenceDiagram
     participant Server as KVServer
     participant Protocol as Protocol
     participant Store as KVStore
-    participant Lock as write_lock
+    participant WALLock as wal_lock
     participant WAL as WAL
+    participant WriteLock as RWLock (write)
     participant DataFile as DataFile
     participant Index as Index
     
@@ -225,13 +272,20 @@ sequenceDiagram
     
     Server->>Store: put(key, value)
     
-    Store->>Lock: acquire()
-    activate Lock
+    Note over Store: PHASE 1: WAL Logging
+    Store->>WALLock: acquire()
+    activate WALLock
     
-    Note over Store: Write-Ahead Log (Durability)
     Store->>WAL: log("put", key, value)
     WAL->>WAL: write to wal.log
     WAL-->>Store: success
+    
+    Store->>WALLock: release()
+    deactivate WALLock
+    
+    Note over Store: PHASE 2: Data & Index Update
+    Store->>WriteLock: acquire()
+    activate WriteLock
     
     Note over Store: Append to Data File
     Store->>DataFile: append(key, value)
@@ -243,8 +297,8 @@ sequenceDiagram
     Index->>Index: index[key] = (offset, length)
     Index-->>Store: success
     
-    Store->>Lock: release()
-    deactivate Lock
+    Store->>WriteLock: release()
+    deactivate WriteLock
     
     Store-->>Server: True
     Server->>Protocol: format_response(True)
@@ -258,12 +312,20 @@ sequenceDiagram
 
 **Key Steps:**
 
-1. **Lock Acquisition**: Acquire exclusive write lock for thread safety
+1. **Phase 1 - WAL Lock**: Acquire wal_lock (fast, doesn't wait for readers)
 2. **WAL Logging**: Write operation to WAL first (durability guarantee)
-3. **Data Append**: Append key-value to append-only data file
-4. **Index Update**: Update in-memory index with offset/length
-5. **Lock Release**: Release write lock
-6. **Response**: Return success to client
+3. **Release WAL Lock**: Other writers can now log to WAL
+4. **Phase 2 - Write Lock**: Acquire exclusive write lock (waits for readers to finish)
+5. **Data Append**: Append key-value to append-only data file
+6. **Index Update**: Update in-memory index with offset/length
+7. **Release Write Lock**: Readers and other writers can now proceed
+8. **Response**: Return success to client
+
+**Two-Phase Locking Benefits:**
+- **Read-heavy optimization**: WAL writes don't wait for readers
+- **Better write throughput**: Multiple writers can log to WAL concurrently (sequential, but not blocked by readers)
+- **Durability preserved**: WAL is always written before data/index updates
+- **Prevents write starvation**: Writers can make progress even with many active readers
 
 **Crash Recovery:**
 - If crash occurs after WAL log but before index update
@@ -279,7 +341,7 @@ sequenceDiagram
     participant Server as KVServer
     participant Protocol as Protocol
     participant Store as KVStore
-    participant Lock as read_lock
+    participant Lock as RWLock (read)
     participant Index as Index
     participant DataFile as DataFile
     
@@ -334,7 +396,7 @@ sequenceDiagram
 
 **Key Steps:**
 
-1. **Lock Acquisition**: Acquire read lock (allows concurrent reads)
+1. **Lock Acquisition**: Acquire read lock (allows concurrent reads - multiple readers simultaneously)
 2. **Index Lookup**: Fast O(1) lookup in in-memory hash index
 3. **Get Offset**: Retrieve file offset and length for the key
 4. **Data Read**: Seek to offset and read from data file
@@ -344,7 +406,8 @@ sequenceDiagram
 
 **Performance Characteristics:**
 - **Fast lookups**: O(1) index lookup in memory
-- **Concurrent reads**: Multiple readers can access simultaneously (RLock)
+- **True concurrent reads**: Multiple readers can hold the lock simultaneously (Reader-Writer Lock)
+- **Non-blocking reads**: Read operations don't block each other
 - **Single disk seek**: Direct access via offset, no scanning
 - **Key verification**: Extra safety check after reading from disk
 
@@ -357,7 +420,7 @@ sequenceDiagram
     participant Server as KVServer
     participant Protocol as Protocol
     participant Store as KVStore
-    participant Lock as write_lock
+    participant Lock as RWLock (write)
     participant Index as Index
     participant WAL as WAL
     

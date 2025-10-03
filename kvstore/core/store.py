@@ -7,6 +7,7 @@ from typing import Optional
 from .wal import WAL
 from .datafile import DataFile
 from .index import Index
+from ..utils.rwlock import RWLock, ReadLock, WriteLock
 
 
 class KVStore:
@@ -21,9 +22,11 @@ class KVStore:
         self.data_file = DataFile(str(self.data_dir / 'data.db'))
         self.index = Index(str(self.data_dir / 'index.db'))
         
-        # Locks for thread safety
-        self.write_lock = threading.Lock()
-        self.read_lock = threading.RLock()
+        # Reader-Writer Lock for thread safety (allows concurrent reads)
+        self.rwlock = RWLock()
+        
+        # Separate lock for WAL writes (prevents WAL blocking in read-heavy workloads)
+        self.wal_lock = threading.Lock()
         
         # Recover from crash if needed
         self._recover()
@@ -52,53 +55,60 @@ class KVStore:
         """Periodically checkpoint index to disk."""
         while self.running:
             time.sleep(self.checkpoint_interval)
-            with self.write_lock:
+            with WriteLock(self.rwlock):
                 self.index.save()
+            # Truncate WAL under its own lock after index is saved
+            with self.wal_lock:
                 self.wal.truncate()
     
     def put(self, key: bytes, value: bytes) -> bool:
         """Store key-value pair."""
-        with self.write_lock:
-            try:
-                # Log to WAL first
+        try:
+            # Phase 1: Log to WAL under separate lock (doesn't block on readers)
+            with self.wal_lock:
                 self.wal.log('put', key, value)
-                
+            
+            # Phase 2: Update data and index under write lock
+            with WriteLock(self.rwlock):
                 # Append to data file
                 offset, length = self.data_file.append(key, value)
                 
                 # Update index
                 self.index.put(key, offset, length)
-                
-                return True
-            except Exception as e:
-                print(f"Error in put: {e}")
-                return False
+            
+            return True
+        except Exception as e:
+            print(f"Error in put: {e}")
+            return False
     
     def batch_put(self, keys: list[bytes], values: list[bytes]) -> bool:
         """Store multiple key-value pairs in a batch operation."""
         if len(keys) != len(values):
             raise ValueError("Keys and values must have the same length")
         
-        with self.write_lock:
-            try:
+        try:
+            # Phase 1: Log all to WAL under separate lock (doesn't block on readers)
+            with self.wal_lock:
                 for key, value in zip(keys, values):
-                    # Log to WAL first
                     self.wal.log('put', key, value)
-                    
+            
+            # Phase 2: Update data and index under write lock
+            with WriteLock(self.rwlock):
+                for key, value in zip(keys, values):
                     # Append to data file
                     offset, length = self.data_file.append(key, value)
                     
                     # Update index
                     self.index.put(key, offset, length)
-                
-                return True
-            except Exception as e:
-                print(f"Error in batch_put: {e}")
-                return False
+            
+            return True
+        except Exception as e:
+            print(f"Error in batch_put: {e}")
+            return False
     
     def read(self, key: bytes) -> Optional[bytes]:
         """Read value for key."""
-        with self.read_lock:
+        with ReadLock(self.rwlock):
             try:
                 # Lookup in index
                 location = self.index.get(key)
@@ -121,7 +131,7 @@ class KVStore:
     
     def read_key_range(self, start_key: bytes, end_key: bytes) -> dict[bytes, bytes]:
         """Read all key-value pairs within the specified range [start_key, end_key]."""
-        with self.read_lock:
+        with ReadLock(self.rwlock):
             try:
                 result = {}
                 # Get all keys in range from index
@@ -140,21 +150,28 @@ class KVStore:
     
     def delete(self, key: bytes) -> bool:
         """Delete key from store."""
-        with self.write_lock:
-            try:
+        try:
+            # Check if key exists first (can use read lock for this check)
+            with ReadLock(self.rwlock):
                 if self.index.get(key) is None:
                     return False
-                
-                # Log to WAL
+            
+            # Phase 1: Log to WAL under separate lock
+            with self.wal_lock:
                 self.wal.log('delete', key)
-                
+            
+            # Phase 2: Update index under write lock
+            with WriteLock(self.rwlock):
+                # Double-check key still exists (could have been deleted by another thread)
+                if self.index.get(key) is None:
+                    return False
                 # Remove from index
                 self.index.delete(key)
-                
-                return True
-            except Exception as e:
-                print(f"Error in delete: {e}")
-                return False
+            
+            return True
+        except Exception as e:
+            print(f"Error in delete: {e}")
+            return False
     
     def close(self):
         """Clean shutdown."""
