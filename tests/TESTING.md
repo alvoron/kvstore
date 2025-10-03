@@ -1,5 +1,129 @@
 # Testing Guide
 
+## Overview
+
+Comprehensive test suite covering basic kvstore functionality, network operations, and replication.
+
+## Test Files
+
+### 1. `test_basic.py` - Core Functionality Tests
+
+Tests for core kvstore operations without networking.
+
+**Test Classes:**
+
+- **TestBasicOperations**: Basic PUT, READ, DELETE operations
+  - Put and read operations
+  - Nonexistent key handling
+  - Overwriting existing keys
+  - Delete operations
+  - Empty keys and values
+  - Large values (1MB)
+  - Special characters and Unicode
+
+- **TestBatchOperations**: Batch PUT operations
+  - Successful batch puts (up to 1000 items)
+  - Empty batches
+  - Single item batches
+  - Overwriting with batch put
+
+- **TestRangeQueries**: Range query operations
+  - Basic range queries with various scenarios
+  - Single key ranges
+  - No matches
+  - All keys
+  - Numeric keys
+  - Excluding deleted keys
+
+- **TestConcurrency**: Concurrent operations (thread-safe)
+  - Concurrent reads (non-blocking)
+  - Concurrent writes
+  - Mixed read/write operations
+  - Concurrent deletes
+
+- **TestPersistence**: Data persistence and WAL recovery
+  - Data survives close/reopen
+  - WAL recovery after crash
+  - Batch put persistence
+  - Delete persistence
+
+- **TestEdgeCases**: Edge cases and error conditions
+  - Multiple deletes of same key
+  - Update after delete
+  - Many updates to same key
+  - Sequential mixed operations
+  - Range query after updates and deletes
+
+### 2. `test_network.py` - Client-Server Tests
+
+Tests for client-server communication over TCP.
+
+**Test Classes:**
+
+- **TestClientServerBasic**: Basic client-server operations
+  - Server start/stop
+  - Client PUT and READ
+  - Client DELETE
+  - Client BATCHPUT
+  - Client READRANGE
+  - Nonexistent key handling
+
+- **TestMultipleClients**: Multiple concurrent clients (10+ clients)
+  - Concurrent reads from multiple clients
+  - Concurrent writes from multiple clients
+  - Mixed operations from multiple clients
+
+- **TestProtocol**: Protocol edge cases
+  - Special characters in values
+  - Empty values
+  - Large values over network (100KB)
+  - Large batch operations
+
+- **TestServerRobustness**: Server robustness and error handling
+  - Client disconnect handling
+  - Data persistence between client connections
+  - Sequential client connections (50+)
+
+### 3. `test_replication.py` - Replication Tests
+
+Tests for master-slave replication functionality.
+
+**Test Classes:**
+
+- **TestReplicaManager**: Replica management
+  - Adding/removing replicas
+  - Health monitoring
+  - Success/failure tracking
+  - Status reporting
+
+- **TestReplicator**: Replication engine
+  - Initialization
+  - Start/stop
+  - Queue management
+  - Statistics
+
+- **TestStoreReplication**: KVStore integration
+  - Store with replication enabled
+  - Replica store (no replication)
+  - Store without replication
+
+- **TestEndToEndReplication**: End-to-end replication scenarios
+  - PUT replication (async/sync modes)
+  - BATCHPUT replication
+  - DELETE replication
+  - Multiple operations
+  - Range queries on replicas
+  - Replica read-only functionality
+
+- **TestReplicationFailure**: Failure handling
+  - Replication with no replicas
+  - Failure recovery
+  - Replication statistics
+
+- **TestReplicationPerformance**: Performance tests (marked `@pytest.mark.slow`)
+  - Async replication throughput
+  - Write latency with replication
+
 ## Setup
 
 Install test dependencies:
@@ -14,113 +138,35 @@ pip install pytest pytest-timeout
 
 ## Running Tests
 
-### Run All Replication Tests
+### Run All Tests
 
 ```bash
-# Run all tests with verbose output
-pytest tests/test_replication.py -v
+pytest tests/ -v
+```
 
-# Run with output shown
-pytest tests/test_replication.py -v -s
+### Run Specific Test Files
 
-# Run with coverage (if pytest-cov installed)
-pytest tests/test_replication.py --cov=kvstore.replication
+```bash
+pytest tests/test_basic.py -v
 ```
 
 ### Run Specific Test Classes
 
 ```bash
-# Test ReplicaManager functionality
 pytest tests/test_replication.py::TestReplicaManager -v
-
-# Test Replicator functionality
-pytest tests/test_replication.py::TestReplicator -v
-
-# Test KVStore with replication
-pytest tests/test_replication.py::TestStoreReplication -v
-
-# Test end-to-end replication scenarios
-pytest tests/test_replication.py::TestEndToEndReplication -v
-
-# Test failure scenarios
-pytest tests/test_replication.py::TestReplicationFailure -v
-
-# Test performance (marked as slow)
-pytest tests/test_replication.py::TestReplicationPerformance -v
 ```
 
 ### Run Individual Tests
 
 ```bash
-# Test adding replicas
 pytest tests/test_replication.py::TestReplicaManager::test_add_replica -v
-
-# Test PUT replication
-pytest tests/test_replication.py::TestEndToEndReplication::test_put_replication -v
-
-# Test BATCHPUT replication
-pytest tests/test_replication.py::TestEndToEndReplication::test_batch_put_replication -v
-
-# Test DELETE replication
-pytest tests/test_replication.py::TestEndToEndReplication::test_delete_replication -v
-
-# Test range query on replicas
-pytest tests/test_replication.py::TestEndToEndReplication::test_replication_with_range_query -v
 ```
 
 ### Skip Slow Tests
 
 ```bash
-# Skip performance tests (marked with @pytest.mark.slow)
 pytest tests/test_replication.py -v -m "not slow"
 ```
-
-## Test Categories
-
-### 1. Unit Tests
-
-Tests for individual components in isolation:
-
-- **TestReplicaManager**: Tests replica management
-  - Adding/removing replicas
-  - Health monitoring
-  - Success/failure tracking
-  - Status reporting
-
-- **TestReplicator**: Tests replication engine
-  - Initialization
-  - Start/stop
-  - Queue management
-  - Statistics
-
-- **TestStoreReplication**: Tests KVStore integration
-  - Replication initialization
-  - Replica mode handling
-  - Configuration handling
-
-### 2. Integration Tests
-
-Tests for complete workflows:
-
-- **TestEndToEndReplication**: End-to-end scenarios
-  - PUT replication
-  - BATCHPUT replication
-  - DELETE replication
-  - Multiple operations
-  - Range queries on replicas
-  - Replica read functionality
-
-- **TestReplicationFailure**: Failure scenarios
-  - Replication with no replicas
-  - Replication statistics
-
-### 3. Performance Tests
-
-Tests marked with `@pytest.mark.slow`:
-
-- **TestReplicationPerformance**: Performance validation
-  - Async replication throughput
-  - Write latency with replication
 
 ## Test Fixtures
 
@@ -232,9 +278,26 @@ def test_my_feature(self, master_server, replica_servers, replica_ports):
 5. **Use descriptive test names** that explain what is being tested
 6. **Add docstrings** to explain test purpose
 
+## Known Issues
+
+1. **Socket cleanup warning**: Background server threads may generate warnings during test cleanup
+   - Does not affect functionality
+   - Tests pass successfully
+   - Warning: `OSError: [WinError 10038] An operation was attempted on something that is not a socket`
+
 ## Continuous Integration
 
-Add to CI pipeline:
+Tests are ready for CI/CD integration:
+
+```yaml
+# Example GitHub Actions
+- name: Run tests
+  run: |
+    pip install -e ".[test]"
+    pytest tests/ -v --tb=short
+```
+
+Or for more comprehensive testing:
 
 ```yaml
 # .github/workflows/test.yml
@@ -251,7 +314,10 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e ".[test]"
-      - run: pytest tests/test_replication.py -v
+      - run: pytest tests/ -v --cov=kvstore --cov-report=xml
+      - uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
 ```
 
 ## Troubleshooting
@@ -299,6 +365,16 @@ pytest tests/test_replication.py --cov=kvstore.replication --cov-report=html
 # Open report
 open htmlcov/index.html
 ```
+
+## Next Steps
+
+Potential areas for additional testing:
+- [ ] Load testing with thousands of concurrent clients
+- [ ] Stress testing with very large datasets (GB+)
+- [ ] Network failure simulation
+- [ ] Disk I/O failure simulation
+- [ ] Memory pressure testing
+- [ ] Extended WAL recovery scenarios
 
 ## See Also
 

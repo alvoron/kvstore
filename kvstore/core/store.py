@@ -41,6 +41,7 @@ class KVStore:
         # Background checkpoint thread
         self.checkpoint_interval = Config.CHECKPOINT_INTERVAL
         self.running = True
+        self._stop_event = threading.Event()
         self.checkpoint_thread = threading.Thread(target=self._checkpoint_loop, daemon=True)
         self.checkpoint_thread.start()
     
@@ -93,7 +94,14 @@ class KVStore:
     def _checkpoint_loop(self):
         """Periodically checkpoint index to disk."""
         while self.running:
-            time.sleep(self.checkpoint_interval)
+            # Use Event.wait() instead of time.sleep() so we can interrupt immediately
+            if self._stop_event.wait(timeout=self.checkpoint_interval):
+                # Stop event was set, exit immediately
+                break
+            
+            if not self.running:
+                break
+                
             with WriteLock(self.rwlock):
                 self.index.save()
             # Truncate WAL under its own lock after index is saved
@@ -227,7 +235,8 @@ class KVStore:
     def close(self):
         """Clean shutdown."""
         self.running = False
-        self.checkpoint_thread.join()
+        self._stop_event.set()  # Wake up the checkpoint thread immediately
+        self.checkpoint_thread.join(timeout=1)  # Wait max 1 second
         
         # Stop replication if enabled
         if self.replicator:
