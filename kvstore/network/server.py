@@ -1,7 +1,6 @@
 """Network server for KV store."""
 import socket
 import threading
-from typing import Optional
 
 from ..core.store import KVStore
 from .protocol import Protocol
@@ -11,7 +10,7 @@ from ..utils.config import Config
 
 class KVServer:
     """Network server for KV store using simple text protocol."""
-    
+
     def __init__(self, host: str = None, port: int = None, data_dir: str = None, is_replica: bool = False):
         self.host = host or Config.HOST
         self.port = port or Config.PORT
@@ -20,21 +19,21 @@ class KVServer:
         self.server_socket = None
         self.protocol = Protocol()
         self.running = False
-    
+
     def _process_message(self, message: bytes) -> bytes:
         """Process client message."""
         try:
             command, key, value = self.protocol.parse_command(message)
-            
-            # Handle REPLICATE commands (only accepted on replica nodes)
+
+            # Handle REPLICATE commands (only on replica nodes)
             if command.startswith('REPLICATE_'):
                 if not self.is_replica:
                     return self.protocol.format_error('REPLICATE commands only accepted on replica nodes')
-                
+
                 if command == 'REPLICATE_PUT':
                     success = self.store.put(key, value)
                     return self.protocol.format_response(success)
-                
+
                 elif command == 'REPLICATE_BATCHPUT':
                     keys = key.split(Config.BATCH_SEPARATOR)
                     values = value.split(Config.BATCH_SEPARATOR)
@@ -44,15 +43,15 @@ class KVServer:
                     unescaped_values = [self.protocol.unescape(v) for v in values]
                     success = self.store.batch_put(keys, unescaped_values)
                     return self.protocol.format_response(success)
-                
+
                 elif command == 'REPLICATE_DELETE':
                     success = self.store.delete(key)
                     return self.protocol.format_response(success)
-            
+
             if command == 'PUT':
                 success = self.store.put(key, value)
                 return self.protocol.format_response(success)
-            
+
             elif command == 'BATCHPUT':
                 # Parse keys and values separated by Config.BATCH_SEPARATOR
                 keys = key.split(Config.BATCH_SEPARATOR)
@@ -63,7 +62,7 @@ class KVServer:
                 unescaped_values = [self.protocol.unescape(v) for v in values]
                 success = self.store.batch_put(keys, unescaped_values)
                 return self.protocol.format_response(success)
-            
+
             elif command == 'READ':
                 result = self.store.read(key)
                 if result is not None:
@@ -71,7 +70,7 @@ class KVServer:
                     escaped_result = self.protocol.escape(result)
                     return self.protocol.format_response(True, escaped_result)
                 return self.protocol.format_not_found()
-            
+
             elif command == 'READRANGE':
                 # value contains end_key for READRANGE
                 start_key = key
@@ -86,27 +85,27 @@ class KVServer:
                     response = Config.BATCH_SEPARATOR.join(pairs)
                     return self.protocol.format_response(True, response)
                 return self.protocol.format_not_found()
-            
+
             elif command == 'DELETE':
                 success = self.store.delete(key)
                 if success:
                     return self.protocol.format_response(True)
                 return self.protocol.format_not_found()
-            
+
             else:
                 # Unknown command
                 return self.protocol.format_error(f'Unknown command: {command}')
-        
+
         except ValueError as e:
             return self.protocol.format_error(str(e))
         except Exception as e:
             return self.protocol.format_error(f'Internal error: {str(e)}')
-    
+
     def _handle_client(self, client_socket: socket.socket, addr):
         """Handle individual client connection."""
         handler = ConnectionHandler(client_socket, addr, self._process_message)
         handler.handle()
-    
+
     def start(self):
         """Start the server."""
         try:
@@ -116,11 +115,11 @@ class KVServer:
             self.server_socket.settimeout(Config.SERVER_TIMEOUT)
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(Config.SERVER_BACKLOG)
-            
+
             self.running = True
             print(f"KV Store server listening on {self.host}:{self.port}")
             print("Press Ctrl+C to stop the server")
-            
+
             try:
                 while self.running:
                     try:
@@ -146,7 +145,7 @@ class KVServer:
             traceback.print_exc()
         finally:
             self.stop()
-    
+
     def stop(self):
         """Stop the server."""
         self.running = False

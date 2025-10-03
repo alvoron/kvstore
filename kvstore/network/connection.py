@@ -1,19 +1,18 @@
 """Connection handler for individual clients."""
 import socket
 from typing import Callable
-from .protocol import Protocol
 from ..utils.config import Config
 
 
 class ConnectionHandler:
     """Handles individual client connections."""
-    
+
     def __init__(self, client_socket: socket.socket, addr, message_processor: Callable):
         self.socket = client_socket
         self.addr = addr
         self.process_message = message_processor
         self.buffer = b''
-    
+
     def handle(self):
         """Handle client connection."""
         try:
@@ -22,9 +21,9 @@ class ConnectionHandler:
                     chunk = self.socket.recv(Config.CONNECTION_RECV_BUFFER)
                     if not chunk:
                         break
-                    
+
                     self.buffer += chunk
-                    
+
                     # Process complete messages (newline-delimited)
                     while Config.MESSAGE_DELIMITER in self.buffer:
                         message, self.buffer = self.buffer.split(Config.MESSAGE_DELIMITER, 1)
