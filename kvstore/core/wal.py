@@ -4,6 +4,7 @@ import struct
 import time
 import pickle
 from typing import Optional, List, Dict, Any
+from ..utils.config import Config
 
 
 class WAL:
@@ -11,7 +12,7 @@ class WAL:
     
     def __init__(self, path: str):
         self.path = path
-        self.file = open(path, 'ab', buffering=0)  # Unbuffered for immediate flush
+        self.file = open(path, 'ab', buffering=Config.WAL_BUFFER_SIZE)  # Unbuffered for immediate flush
     
     def log(self, operation: str, key: bytes, value: Optional[bytes] = None):
         """Log an operation to WAL."""
@@ -45,7 +46,7 @@ class WAL:
     def truncate(self):
         """Clear WAL after successful checkpoint."""
         self.file.close()
-        self.file = open(self.path, 'wb', buffering=0)
+        self.file = open(self.path, 'wb', buffering=Config.WAL_BUFFER_SIZE)
     
     def close(self):
         """Close WAL file."""

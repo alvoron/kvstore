@@ -6,15 +6,16 @@ from typing import Optional
 from ..core.store import KVStore
 from .protocol import Protocol
 from .connection import ConnectionHandler
+from ..utils.config import Config
 
 
 class KVServer:
     """Network server for KV store using simple text protocol."""
     
-    def __init__(self, host: str = '0.0.0.0', port: int = 5555, data_dir: str = './kvstore_data'):
-        self.host = host
-        self.port = port
-        self.store = KVStore(data_dir)
+    def __init__(self, host: str = None, port: int = None, data_dir: str = None):
+        self.host = host or Config.HOST
+        self.port = port or Config.PORT
+        self.store = KVStore(data_dir or Config.DATA_DIR)
         self.server_socket = None
         self.protocol = Protocol()
         self.running = False
@@ -29,9 +30,9 @@ class KVServer:
                 return self.protocol.format_response(success)
             
             elif command == 'BATCHPUT':
-                # Parse keys and values separated by ||
-                keys = key.split(b'||')
-                values = value.split(b'||')
+                # Parse keys and values separated by Config.BATCH_SEPARATOR
+                keys = key.split(Config.BATCH_SEPARATOR)
+                values = value.split(Config.BATCH_SEPARATOR)
                 if len(keys) != len(values):
                     return self.protocol.format_error('Keys and values count mismatch')
                 success = self.store.batch_put(keys, values)
@@ -53,7 +54,7 @@ class KVServer:
                     pairs = []
                     for k, v in sorted(results.items()):
                         pairs.extend([k, v])
-                    response = b'||'.join(pairs)
+                    response = Config.BATCH_SEPARATOR.join(pairs)
                     return self.protocol.format_response(True, response)
                 return self.protocol.format_not_found()
             
@@ -78,9 +79,9 @@ class KVServer:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Set timeout to allow periodic checking for shutdown
-        self.server_socket.settimeout(1.0)
+        self.server_socket.settimeout(Config.SERVER_TIMEOUT)
         self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(128)  # High backlog for heavy load
+        self.server_socket.listen(Config.SERVER_BACKLOG)
         
         self.running = True
         print(f"KV Store server listening on {self.host}:{self.port}")

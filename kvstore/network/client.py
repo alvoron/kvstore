@@ -1,21 +1,22 @@
 """Client for connecting to KV store server."""
 import socket
 from typing import Optional
+from ..utils.config import Config
 
 
 class KVClient:
     """Simple client for KV store."""
     
-    def __init__(self, host: str = 'localhost', port: int = 5555):
-        self.host = host
-        self.port = port
+    def __init__(self, host: str = None, port: int = None):
+        self.host = host or Config.CLIENT_HOST
+        self.port = port or Config.CLIENT_PORT
     
     def _send_command(self, command: bytes) -> bytes:
         """Send command and receive response."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((self.host, self.port))
-            s.sendall(command + b'\n')
-            response = s.recv(4096).strip()
+            s.sendall(command + Config.MESSAGE_DELIMITER)
+            response = s.recv(Config.CLIENT_RECV_BUFFER).strip()
             return response
     
     def put(self, key: str, value: str) -> bool:
@@ -29,9 +30,10 @@ class KVClient:
         if len(keys) != len(values):
             raise ValueError("Keys and values must have the same length")
         
-        # Join keys and values with || separator
-        keys_str = '||'.join(keys)
-        values_str = '||'.join(values)
+        # Join keys and values with Config.BATCH_SEPARATOR
+        separator = Config.BATCH_SEPARATOR.decode()
+        keys_str = separator.join(keys)
+        values_str = separator.join(values)
         command = f'BATCHPUT {keys_str} {values_str}'.encode()
         response = self._send_command(command)
         return response == b'OK'
@@ -51,7 +53,7 @@ class KVClient:
             return {}
         
         # Parse response: key1||value1||key2||value2||...
-        parts = response.split(b'||')
+        parts = response.split(Config.BATCH_SEPARATOR)
         result = {}
         for i in range(0, len(parts), 2):
             if i + 1 < len(parts):

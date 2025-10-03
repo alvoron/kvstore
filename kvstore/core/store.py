@@ -8,6 +8,7 @@ from .wal import WAL
 from .datafile import DataFile
 from .index import Index
 from ..utils.rwlock import RWLock, ReadLock, WriteLock
+from ..utils.config import Config
 
 
 class KVStore:
@@ -32,7 +33,7 @@ class KVStore:
         self._recover()
         
         # Background checkpoint thread
-        self.checkpoint_interval = 10  # seconds
+        self.checkpoint_interval = Config.CHECKPOINT_INTERVAL
         self.running = True
         self.checkpoint_thread = threading.Thread(target=self._checkpoint_loop, daemon=True)
         self.checkpoint_thread.start()
