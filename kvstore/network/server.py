@@ -109,33 +109,41 @@ class KVServer:
     
     def start(self):
         """Start the server."""
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # Set timeout to allow periodic checking for shutdown
-        self.server_socket.settimeout(Config.SERVER_TIMEOUT)
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(Config.SERVER_BACKLOG)
-        
-        self.running = True
-        print(f"KV Store server listening on {self.host}:{self.port}")
-        print("Press Ctrl+C to stop the server")
-        
         try:
-            while self.running:
-                try:
-                    client_socket, addr = self.server_socket.accept()
-                    # Handle each client in a separate thread
-                    client_thread = threading.Thread(
-                        target=self._handle_client,
-                        args=(client_socket, addr),
-                        daemon=True
-                    )
-                    client_thread.start()
-                except socket.timeout:
-                    # Timeout allows us to check self.running flag
-                    continue
-        except KeyboardInterrupt:
-            print("\nShutting down...")
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # Set timeout to allow periodic checking for shutdown
+            self.server_socket.settimeout(Config.SERVER_TIMEOUT)
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(Config.SERVER_BACKLOG)
+            
+            self.running = True
+            print(f"KV Store server listening on {self.host}:{self.port}")
+            print("Press Ctrl+C to stop the server")
+            
+            try:
+                while self.running:
+                    try:
+                        client_socket, addr = self.server_socket.accept()
+                        # Handle each client in a separate thread
+                        client_thread = threading.Thread(
+                            target=self._handle_client,
+                            args=(client_socket, addr),
+                            daemon=True
+                        )
+                        client_thread.start()
+                    except socket.timeout:
+                        # Timeout allows us to check self.running flag
+                        continue
+                    except OSError:
+                        # Socket was closed, exit loop
+                        break
+            except KeyboardInterrupt:
+                print("\nShutting down...")
+        except Exception as e:
+            print(f"Error starting server: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self.stop()
     
@@ -143,6 +151,15 @@ class KVServer:
         """Stop the server."""
         self.running = False
         if self.server_socket:
-            self.server_socket.close()
+            try:
+                # Shutdown the socket to unblock accept()
+                self.server_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                # Socket might already be closed or not connected
+                pass
+            try:
+                self.server_socket.close()
+            except OSError:
+                pass
         self.store.close()
         print("Server stopped.")
