@@ -13,7 +13,7 @@ from ..utils.config import Config
 class ReplicationOperation:
     """Represents an operation to be replicated."""
     
-    def __init__(self, op: str, key: bytes, value: Optional[bytes] = None, keys: Optional[List[bytes]] = None, values: Optional[List[bytes]] = None):
+    def __init__(self, op: str, key: Optional[bytes] = None, value: Optional[bytes] = None, keys: Optional[List[bytes]] = None, values: Optional[List[bytes]] = None):
         """
         Initialize replication operation.
         

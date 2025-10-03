@@ -6,6 +6,16 @@ class Protocol:
     """Simple text-based protocol handler."""
     
     @staticmethod
+    def escape(data: bytes) -> bytes:
+        """Escape special characters in data."""
+        return data.replace(b'\\', b'\\\\').replace(b'\n', b'\\n').replace(b'\r', b'\\r').replace(b'\t', b'\\t')
+    
+    @staticmethod
+    def unescape(data: bytes) -> bytes:
+        """Unescape special characters in data."""
+        return data.replace(b'\\t', b'\t').replace(b'\\r', b'\r').replace(b'\\n', b'\n').replace(b'\\\\', b'\\')
+    
+    @staticmethod
     def parse_command(message: bytes) -> Tuple[str, Optional[bytes], Optional[bytes]]:
         """
         Parse protocol message.
@@ -42,9 +52,12 @@ class Protocol:
                 raise ValueError(f'Unknown REPLICATE subcommand: {subcommand}')
         
         if command == 'PUT':
-            if len(parts) != 3:
-                raise ValueError('PUT requires key and value')
-            return command, parts[1], parts[2]
+            if len(parts) < 2:
+                raise ValueError('PUT requires key')
+            # Handle empty value case - if only 2 parts, value is empty
+            key = parts[1]
+            value = parts[2] if len(parts) == 3 else b''
+            return command, key, Protocol.unescape(value)
         
         elif command == 'BATCHPUT':
             if len(parts) != 3:

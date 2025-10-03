@@ -40,7 +40,9 @@ class KVServer:
                     values = value.split(Config.BATCH_SEPARATOR)
                     if len(keys) != len(values):
                         return self.protocol.format_error('Keys and values count mismatch')
-                    success = self.store.batch_put(keys, values)
+                    # Unescape each value
+                    unescaped_values = [self.protocol.unescape(v) for v in values]
+                    success = self.store.batch_put(keys, unescaped_values)
                     return self.protocol.format_response(success)
                 
                 elif command == 'REPLICATE_DELETE':
@@ -57,13 +59,17 @@ class KVServer:
                 values = value.split(Config.BATCH_SEPARATOR)
                 if len(keys) != len(values):
                     return self.protocol.format_error('Keys and values count mismatch')
-                success = self.store.batch_put(keys, values)
+                # Unescape each value
+                unescaped_values = [self.protocol.unescape(v) for v in values]
+                success = self.store.batch_put(keys, unescaped_values)
                 return self.protocol.format_response(success)
             
             elif command == 'READ':
                 result = self.store.read(key)
                 if result is not None:
-                    return self.protocol.format_response(True, result)
+                    # Escape the value before sending
+                    escaped_result = self.protocol.escape(result)
+                    return self.protocol.format_response(True, escaped_result)
                 return self.protocol.format_not_found()
             
             elif command == 'READRANGE':
@@ -75,7 +81,8 @@ class KVServer:
                     # Format: key1||value1||key2||value2||...
                     pairs = []
                     for k, v in sorted(results.items()):
-                        pairs.extend([k, v])
+                        # Escape each value before sending
+                        pairs.extend([k, self.protocol.escape(v)])
                     response = Config.BATCH_SEPARATOR.join(pairs)
                     return self.protocol.format_response(True, response)
                 return self.protocol.format_not_found()
