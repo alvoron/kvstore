@@ -1,0 +1,58 @@
+"""Protocol parsing and formatting."""
+from typing import Tuple, Optional, List
+
+
+class Protocol:
+    """Simple text-based protocol handler."""
+    
+    @staticmethod
+    def parse_command(message: bytes) -> Tuple[str, Optional[bytes], Optional[bytes]]:
+        """
+        Parse protocol message.
+        Returns (command, key, value)
+        For BATCHPUT: returns (command, keys_joined, values_joined) where parts are separated by ||
+        """
+        parts = message.split(b' ', 2)
+        command = parts[0].upper().decode('utf-8')
+        
+        if command == 'PUT':
+            if len(parts) != 3:
+                raise ValueError('PUT requires key and value')
+            return command, parts[1], parts[2]
+        
+        elif command == 'BATCHPUT':
+            if len(parts) != 3:
+                raise ValueError('BATCHPUT requires keys and values')
+            # Format: BATCHPUT key1||key2||key3 val1||val2||val3
+            return command, parts[1], parts[2]
+        
+        elif command == 'READRANGE':
+            if len(parts) != 3:
+                raise ValueError('READRANGE requires start_key and end_key')
+            # Format: READRANGE start_key end_key
+            return command, parts[1], parts[2]
+        
+        elif command in ('READ', 'DELETE'):
+            if len(parts) != 2:
+                raise ValueError(f'{command} requires key')
+            return command, parts[1], None
+        
+        else:
+            raise ValueError(f'Unknown command: {command}')
+    
+    @staticmethod
+    def format_response(success: bool, data: Optional[bytes] = None) -> bytes:
+        """Format response message."""
+        if data is not None:
+            return data
+        return b'OK' if success else b'ERROR'
+    
+    @staticmethod
+    def format_not_found() -> bytes:
+        """Format NOT_FOUND response."""
+        return b'NOT_FOUND'
+    
+    @staticmethod
+    def format_error(message: str) -> bytes:
+        """Format error message."""
+        return f'ERROR: {message}'.encode()
