@@ -92,6 +92,10 @@ class KVServer:
                 if success:
                     return self.protocol.format_response(True)
                 return self.protocol.format_not_found()
+            
+            else:
+                # Unknown command
+                return self.protocol.format_error(f'Unknown command: {command}')
         
         except ValueError as e:
             return self.protocol.format_error(str(e))

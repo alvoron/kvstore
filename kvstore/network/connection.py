@@ -29,6 +29,11 @@ class ConnectionHandler:
                     while Config.MESSAGE_DELIMITER in self.buffer:
                         message, self.buffer = self.buffer.split(Config.MESSAGE_DELIMITER, 1)
                         response = self.process_message(message)
+                        if response is None:
+                            print(f"WARNING: process_message returned None for message: {message[:50]}")
+                            response = b'ERROR: Internal server error'
                         self.socket.sendall(response + Config.MESSAGE_DELIMITER)
         except Exception as e:
+            import traceback
             print(f"Error handling client {self.addr}: {e}")
+            print(f"Traceback: {traceback.format_exc()}")
