@@ -9,7 +9,7 @@ Tests cover:
 - Error handling
 - Concurrency
 """
-import pytest
+import time
 import time
 import threading
 from kvstore import KVStore

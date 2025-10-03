@@ -109,7 +109,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentat
 
 ## Testing
 
-Comprehensive test suite with 50+ tests covering:
+Comprehensive test suite covering:
 
 **Test Coverage:**
 - ✅ Core operations (PUT, READ, DELETE, BATCHPUT, READRANGE)
@@ -118,20 +118,6 @@ Comprehensive test suite with 50+ tests covering:
 - ✅ Network (client-server communication, multiple clients)
 - ✅ Replication (master-slave, async/sync modes, failure handling)
 - ✅ Edge cases (empty values, special characters, large data)
-
-**Run Tests:**
-```bash
-# Install test dependencies
-pip install -e ".[test]"
-
-# Run all tests
-python -m pytest tests/ -v
-
-# Run specific test files
-python -m pytest tests/test_basic.py -v        # Core functionality
-python -m pytest tests/test_network.py -v      # Client-server
-python -m pytest tests/test_replication.py -v  # Replication
-```
 
 See [tests/TESTING.md](tests/TESTING.md) for complete testing guide with detailed test coverage and usage examples.
 

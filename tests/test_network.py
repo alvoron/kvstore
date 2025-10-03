@@ -8,7 +8,6 @@ Tests cover:
 - Error responses
 - Multiple concurrent clients
 """
-import pytest
 import time
 import socket
 import threading
@@ -39,11 +38,12 @@ class TestClientServerBasic:
         """Test basic client PUT and READ operations."""
         # Start server
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             # Use client
@@ -58,11 +58,12 @@ class TestClientServerBasic:
     def test_client_delete(self, tmp_path):
         """Test client DELETE operation."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -77,11 +78,12 @@ class TestClientServerBasic:
     def test_client_batch_put(self, tmp_path):
         """Test client BATCHPUT operation."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -100,11 +102,12 @@ class TestClientServerBasic:
     def test_client_read_range(self, tmp_path):
         """Test client READRANGE operation."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -125,11 +128,12 @@ class TestClientServerBasic:
     def test_read_nonexistent_key(self, tmp_path):
         """Test reading a key that doesn't exist returns None."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -143,11 +147,12 @@ class TestClientServerBasic:
     def test_delete_nonexistent_key(self, tmp_path):
         """Test deleting a nonexistent key returns False."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -165,11 +170,12 @@ class TestMultipleClients:
     def test_multiple_clients_concurrent_reads(self, tmp_path):
         """Test multiple clients reading concurrently."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             # Setup data
@@ -203,11 +209,12 @@ class TestMultipleClients:
     def test_multiple_clients_concurrent_writes(self, tmp_path):
         """Test multiple clients writing concurrently."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             errors = []
@@ -243,11 +250,12 @@ class TestMultipleClients:
     def test_multiple_clients_mixed_operations(self, tmp_path):
         """Test multiple clients performing mixed operations."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             # Setup some initial data
@@ -292,11 +300,12 @@ class TestProtocol:
     def test_special_characters_in_values(self, tmp_path):
         """Test values with special characters."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -321,11 +330,12 @@ class TestProtocol:
     def test_empty_value(self, tmp_path):
         """Test storing and retrieving empty values."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -339,11 +349,12 @@ class TestProtocol:
     def test_large_value(self, tmp_path):
         """Test storing and retrieving large values."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -359,11 +370,12 @@ class TestProtocol:
     def test_batch_put_large_batch(self, tmp_path):
         """Test batch put with many items."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             client = KVClient(host="localhost", port=actual_port)
@@ -387,11 +399,12 @@ class TestServerRobustness:
     def test_server_handles_client_disconnect(self, tmp_path):
         """Test that server continues running after client disconnect."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             # Connect and disconnect abruptly
@@ -414,11 +427,12 @@ class TestServerRobustness:
     def test_server_data_persists_between_clients(self, tmp_path):
         """Test that data persists between different client connections."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             # First client writes data
@@ -435,11 +449,12 @@ class TestServerRobustness:
     def test_sequential_client_connections(self, tmp_path):
         """Test many sequential client connections."""
         server = KVServer(host="localhost", port=0, data_dir=str(tmp_path))
-        actual_port = server.server_socket.getsockname()[1]
         
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
+        
+        actual_port = server.server_socket.getsockname()[1]
         
         try:
             # Make many sequential connections

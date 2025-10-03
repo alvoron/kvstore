@@ -68,6 +68,15 @@ class DataFile:
     
     def close(self):
         """Close data file and mmap."""
-        if self._mmap:
-            self._mmap.close()
-        self.file.close()
+        try:
+            if self._mmap:
+                self._mmap.close()
+        except (ValueError, OSError):
+            # mmap already closed or invalid
+            pass
+        
+        try:
+            self.file.close()
+        except (ValueError, OSError):
+            # file already closed
+            pass

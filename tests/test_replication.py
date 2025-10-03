@@ -295,7 +295,7 @@ class TestEndToEndReplication:
         for port in replica_ports[:2]:
             replica_client = KVClient(host='localhost', port=port)
             value = replica_client.read('key1')
-            assert value == b'value1', f"Replica on port {port} doesn't have replicated data"
+            assert value == 'value1', f"Replica on port {port} doesn't have replicated data"
     
     def test_batch_put_replication(self, master_server, replica_servers, replica_ports):
         """Test BATCHPUT operation replicates to replicas."""
@@ -316,7 +316,7 @@ class TestEndToEndReplication:
             replica_client = KVClient(host='localhost', port=port)
             for key, expected_value in zip(keys, values):
                 value = replica_client.read(key)
-                assert value == expected_value.encode(), \
+                assert value == expected_value, \
                     f"Replica on port {port} doesn't have {key}"
     
     def test_delete_replication(self, master_server, replica_servers, replica_ports):
@@ -357,17 +357,17 @@ class TestEndToEndReplication:
         
         # Verify final state on replicas
         expected = {
-            b'k1': b'v1',
-            b'k2': None,  # Deleted
-            b'k3': b'v3',
-            b'k4': b'v4',
-            b'k5': b'v5',
+            'k1': 'v1',
+            'k2': None,  # Deleted
+            'k3': 'v3',
+            'k4': 'v4',
+            'k5': 'v5',
         }
         
         for port in replica_ports[:2]:
             replica_client = KVClient(host='localhost', port=port)
             for key, expected_value in expected.items():
-                value = replica_client.read(key.decode())
+                value = replica_client.read(key)
                 assert value == expected_value, \
                     f"Replica on port {port} mismatch for {key}"
     
@@ -383,7 +383,7 @@ class TestEndToEndReplication:
         
         # Verify it's stored
         value = replica_client.read('direct_key')
-        assert value == b'direct_value'
+        assert value == 'direct_value'
     
     def test_replication_with_range_query(self, master_server, replica_servers, replica_ports):
         """Test range queries work on replicated data."""
@@ -403,9 +403,9 @@ class TestEndToEndReplication:
         
         # Verify results
         assert len(results) == 5
-        assert b'range03' in results
-        assert b'range07' in results
-        assert results[b'range05'] == b'value5'
+        assert 'range03' in results
+        assert 'range07' in results
+        assert results['range05'] == 'value5'
 
 
 class TestReplicationFailure:
@@ -482,4 +482,4 @@ class TestReplicationPerformance:
         # Verify some keys made it to replica
         replica_client = KVClient(host='localhost', port=15556)
         value = replica_client.read('perf_key50')
-        assert value == b'perf_value50'
+        assert value == 'perf_value50'
