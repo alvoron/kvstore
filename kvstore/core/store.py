@@ -13,15 +13,15 @@ from ..utils.config import Config
 class KVStore:
     """Core Key/Value store implementation."""
 
-    def __init__(self, data_dir: str = './kvstore_data', is_replica: bool = False):
-        self.data_dir = Path(data_dir)
+    def __init__(self, data_dir: str = None, is_replica: bool = False, checkpoint_interval: int = None):
+        self.data_dir = Path(data_dir or Config.DATA_DIR)
         self.data_dir.mkdir(exist_ok=True)
         self.is_replica = is_replica
 
         # Initialize components
-        self.wal = WAL(str(self.data_dir / 'wal.log'))
-        self.data_file = DataFile(str(self.data_dir / 'data.db'))
-        self.index = Index(str(self.data_dir / 'index.db'))
+        self.wal = WAL(str(self.data_dir / Config.WAL_FILENAME))
+        self.data_file = DataFile(str(self.data_dir / Config.DATA_FILENAME))
+        self.index = Index(str(self.data_dir / Config.INDEX_FILENAME))
 
         # Reader-Writer Lock for thread safety (allows concurrent reads)
         self.rwlock = RWLock()
@@ -38,7 +38,7 @@ class KVStore:
             self._init_replication()
 
         # Background checkpoint thread
-        self.checkpoint_interval = Config.CHECKPOINT_INTERVAL
+        self.checkpoint_interval = checkpoint_interval or Config.CHECKPOINT_INTERVAL
         self.running = True
         self._stop_event = threading.Event()
         self.checkpoint_thread = threading.Thread(target=self._checkpoint_loop, daemon=True)

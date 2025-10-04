@@ -17,6 +17,9 @@ class Config:
 
     # Storage settings
     DATA_DIR = './kvstore_data'
+    WAL_FILENAME = 'wal.log'  # Write-ahead log filename
+    DATA_FILENAME = 'data.db'  # Data file filename
+    INDEX_FILENAME = 'index.db'  # Index file filename
     CHECKPOINT_INTERVAL = 10  # Seconds between index checkpoints
     MAX_WAL_SIZE = 100 * 1024 * 1024  # 100MB
     WAL_BUFFER_SIZE = 0  # 0 = unbuffered (immediate flush)

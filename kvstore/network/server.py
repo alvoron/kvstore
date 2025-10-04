@@ -11,11 +11,11 @@ from ..utils.config import Config
 class KVServer:
     """Network server for KV store using simple text protocol."""
 
-    def __init__(self, host: str = None, port: int = None, data_dir: str = None, is_replica: bool = False):
+    def __init__(self, host: str = None, port: int = None, data_dir: str = None, is_replica: bool = False, checkpoint_interval: int = None):
         self.host = host or Config.HOST
         self.port = port or Config.PORT
         self.is_replica = is_replica
-        self.store = KVStore(data_dir or Config.DATA_DIR, is_replica=is_replica)
+        self.store = KVStore(data_dir or Config.DATA_DIR, is_replica=is_replica, checkpoint_interval=checkpoint_interval)
         self.server_socket = None
         self.protocol = Protocol()
         self.running = False
@@ -160,8 +160,6 @@ class KVServer:
                 print("\nShutting down...")
         except Exception as e:
             print(f"Error starting server: {e}")
-            import traceback
-            traceback.print_exc()
         finally:
             self.stop()
 

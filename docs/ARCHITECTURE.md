@@ -1,60 +1,26 @@
 # Architecture Details
 
-## Core Components
+## System Components
 
+### Storage Layer
 1. **KVStore**: Main store orchestrating WAL, DataFile, and Index
 2. **WAL (Write-Ahead Log)**: Logs all write operations before applying them
 3. **DataFile**: Append-only storage file for key-value pairs
 4. **Index**: In-memory hash map for fast key lookups
 
-## Locking Strategy
+### Network Layer
+5. **KVServer**: Multi-threaded TCP server handling client connections
+6. **KVClient**: Client library for connecting to the server
+7. **Protocol**: Message parsing and formatting
+8. **ConnectionHandler**: Per-connection request handler
 
-The system uses a sophisticated **three-phase locking strategy** to optimize performance:
+### Replication Layer
+9. **Replicator**: Handles asynchronous replication to replica nodes
+10. **ReplicaManager**: Manages replica nodes and their health status
+11. **ReplicaNode**: Represents individual replica servers
 
-### 1. Reader-Writer Lock (RWLock)
-- **Read operations**: Multiple readers can acquire the lock simultaneously
-- **Write operations**: Writers get exclusive access (no readers or other writers)
-- **Use case**: Protects data file reads/writes and index updates
-
-### 2. Separate WAL Lock
-- **Independent locking**: WAL writes use a separate `threading.Lock()`
-- **Problem solved**: In read-heavy workloads, writers would wait for all readers to finish before even logging to WAL
-- **Benefit**: WAL writes can proceed immediately without waiting for readers
-
-### 3. Async Replication (Non-blocking)
-- **After local commit**: Replication happens asynchronously after WAL and index updates
-- **Queue-based**: Operations are queued and processed by worker threads
-- **Non-blocking**: Client receives response immediately, replication happens in background
-
-### Write Operation Flow (Three-Phase):
-```
-Phase 1: Acquire wal_lock → Log to WAL → Release wal_lock
-Phase 2: Acquire write_lock → Update DataFile & Index → Release write_lock
-Phase 3: Enqueue to Replicator → Async replication to replicas
-```
-
-### Delete Operation Flow (Three-Phase with Optimization):
-```
-Phase 1: Acquire read_lock → Check existence → Release read_lock
-Phase 2: Acquire wal_lock → Log to WAL → Release wal_lock
-Phase 3: Acquire write_lock → Double-check & Update Index → Release write_lock
-Phase 4: Enqueue to Replicator → Async replication to replicas
-```
-
-**Why this matters:**
-- In a read-heavy workload, many readers might be active
-- Without separate locks: Writer waits for readers → WAL logging delayed → Other writers blocked
-- With separate locks: WAL logging proceeds immediately → Better write throughput
-- Async replication: No impact on write latency, eventual consistency across replicas
-- Durability preserved: WAL is written before data/index updates
-- Delete optimization: Read lock first allows concurrent existence checks
-
-## Network Components
-
-1. **KVServer**: Multi-threaded TCP server handling client connections
-2. **KVClient**: Client library for connecting to the server
-3. **Protocol**: Message parsing and formatting
-4. **ConnectionHandler**: Per-connection request handler
+### Synchronization
+12. **RWLock**: Reader-Writer lock allowing concurrent reads
 
 ## Architecture Diagram
 
@@ -247,28 +213,11 @@ classDiagram
     ReplicaManager --> ReplicaNode : manages
     
     %% Notes
-    note for KVStore "Three-phase operations:\n1. wal_lock for WAL writes\n2. rwlock for data/index access\n3. replicator for async replication\nAllows concurrent reads\nBackground checkpoint every 10 seconds"
-    note for RWLock "Multiple readers can hold lock simultaneously\nWriters get exclusive access"
-    note for WAL "Write-Ahead Log ensures durability\nReplayed on recovery\nHas separate lock for better concurrency"
-    note for Index "In-memory hash index\nPeriodically persisted to disk"
-    note for Replicator "Async replication to replica nodes\nQueued operations with retry logic\nSeparate worker threads"
-```
-
-## Data Flow
-
-**Write Operation (with Replication):**
-```
-Client → Protocol → Server → KVStore → [Phase 1: WAL] → [Phase 2: DataFile & Index] → [Phase 3: Replicator] → Replicas
-```
-
-**Read Operation:**
-```
-Client → Protocol → Server → KVStore → Index → DataFile → Client
-```
-
-**Recovery on Startup:**
-```
-KVStore → WAL.replay() → Apply operations → Truncate WAL
+    note for KVStore "Three-phase operations:<br/>1. wal_lock for WAL writes<br/>2. rwlock for data/index access<br/>3. replicator for async replication<br/>Allows concurrent reads<br/>Background checkpoint every 10 seconds"
+    note for RWLock "Multiple readers can hold lock simultaneously<br/>Writers get exclusive access"
+    note for WAL "Write-Ahead Log ensures durability<br/>Replayed on recovery<br/>Has separate lock for better concurrency"
+    note for Index "In-memory hash index<br/>Periodically persisted to disk"
+    note for Replicator "Async replication to replica nodes<br/>Queued operations with retry logic<br/>Separate worker threads"
 ```
 
 ## Write Operation Sequence Diagram
@@ -474,15 +423,11 @@ sequenceDiagram
     Note over Store: PHASE 1: Check Existence
     Store->>ReadLock: acquire()
     activate ReadLock
-    
     Store->>Index: get(key)
-    Index->>Index: lookup index[key]
     
     alt Key Found
         Index-->>Store: (offset, length)
-        
         Store->>ReadLock: release()
-        deactivate ReadLock
         
         Note over Store: PHASE 2: WAL Logging
         Store->>WALLock: acquire()
@@ -506,13 +451,16 @@ sequenceDiagram
             Index-->>Store: (offset, length)
             
             Store->>Index: delete(key)
-            Index->>Index: index.pop(key)
             Index-->>Store: success
-            
-            Store->>WriteLock: release()
-            deactivate WriteLock
-            
-            Note over Store: PHASE 4: Replication
+        else Key Was Deleted by Another Thread
+            Index-->>Store: None
+        end
+        
+        Store->>WriteLock: release()
+        deactivate WriteLock
+        
+        alt Key Was Successfully Deleted
+            Note over Store: Replication (After All Locks)
             alt Not Replica and Replication Enabled
                 Store->>Replicator: replicate_delete(key)
                 Replicator->>Replicator: enqueue operation
@@ -525,12 +473,7 @@ sequenceDiagram
             
             Server->>Socket: send(b"OK")
             Socket-->>Client: b"OK"
-        else Key Was Deleted by Another Thread
-            Index-->>Store: None
-            
-            Store->>WriteLock: release()
-            deactivate WriteLock
-            
+        else Race Condition Detected
             Store-->>Server: False
             Server->>Protocol: format_not_found()
             Protocol-->>Server: b"NOT_FOUND"
@@ -538,10 +481,8 @@ sequenceDiagram
             Server->>Socket: send(b"NOT_FOUND")
             Socket-->>Client: b"NOT_FOUND"
         end
-        
     else Key Not Found
         Index-->>Store: None
-        
         Store->>ReadLock: release()
         deactivate ReadLock
         
@@ -560,21 +501,23 @@ sequenceDiagram
 **Key Steps:**
 
 1. **Phase 1 - Read Lock**: Check if key exists (allows concurrent reads)
-2. **Release Read Lock**: Early release for better concurrency
-3. **Phase 2 - WAL Lock**: Log delete operation to WAL (doesn't wait for readers)
-4. **Release WAL Lock**: Other writers can now log to WAL
-5. **Phase 3 - Write Lock**: Acquire exclusive write lock
-6. **Double Check**: Verify key still exists (race condition protection)
-7. **Index Removal**: Remove key from in-memory index
-8. **Release Write Lock**: Readers and other writers can now proceed
-9. **Phase 4 - Replication**: Async replication to replicas (if master)
-10. **Response**: Return OK or NOT_FOUND to client
+   - If not found: Release lock and return NOT_FOUND immediately
+2. **Phase 2 - WAL Lock**: Log delete operation to WAL (doesn't wait for readers)
+3. **Release WAL Lock**: Other writers can now log to WAL
+4. **Phase 3 - Write Lock**: Acquire exclusive write lock
+5. **Double Check**: Verify key still exists (race condition protection)
+   - If deleted by another thread: Release lock and return NOT_FOUND
+6. **Index Removal**: Remove key from in-memory index
+7. **Release Write Lock**: Readers and other writers can now proceed
+8. **Async Replication**: Enqueue delete operation for replica nodes (if master)
+9. **Response**: Return OK to client (replication happens asynchronously)
 
 **Three-Phase Locking Benefits:**
 - **Optimistic existence check**: Read lock first (fast, concurrent)
+- **Early exit**: Return immediately if key doesn't exist (no WAL/write lock needed)
 - **WAL logging without blocking**: Separate lock for durability
 - **Race condition safety**: Double-check under write lock
-- **Async replication**: Non-blocking replication to replicas
+- **Async replication**: Non-blocking replication after all locks released
 
 **Important Notes:**
 - **Logical Delete**: Data is NOT removed from the data file (append-only)
@@ -583,3 +526,157 @@ sequenceDiagram
 - **Fast Operation**: No disk I/O needed except WAL log
 - **Crash Recovery**: WAL ensures delete is replayed after crash
 - **Replication**: Delete propagates to replica nodes asynchronously
+
+## Recovery on Startup Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Store as KVStore
+    participant Index as Index
+    participant WAL as WAL
+    participant DataFile as DataFile
+    
+    App->>Store: __init__(data_dir)
+    
+    Note over Store: Initialize Components
+    Store->>WAL: __init__(wal.log path)
+    activate WAL
+    WAL-->>Store: WAL instance
+    
+    Store->>DataFile: __init__(data.db path)
+    activate DataFile
+    DataFile-->>Store: DataFile instance
+    
+    Store->>Index: __init__(index.db path)
+    activate Index
+    
+    Note over Index: Load persisted index from disk
+    Index->>Index: load() from index.db
+    
+    alt Index file exists
+        Index-->>Store: Loaded index
+    else Index file not found
+        Index-->>Store: Empty index
+    end
+    
+    Note over Store: RECOVERY PHASE
+    Store->>Store: _recover()
+    
+    Store->>WAL: replay()
+    Note over WAL: Read all entries from wal.log
+    
+    alt WAL has entries (crash recovery needed)
+        WAL->>WAL: Read and parse all log entries
+        WAL-->>Store: List of operations [(op, key, value), ...]
+        
+        Note over Store: Replay each operation
+        loop For each WAL entry
+            alt Operation is PUT
+                Store->>DataFile: append(key, value)
+                DataFile->>DataFile: write to data.db
+                DataFile-->>Store: (offset, length)
+                
+                Store->>Index: put(key, offset, length)
+                Index->>Index: Update index[key]
+                Index-->>Store: success
+            else Operation is DELETE
+                Store->>Index: delete(key)
+                Index->>Index: Remove from index
+                Index-->>Store: success
+            end
+        end
+        
+        Note over Store: Save recovered index
+        Store->>Index: save()
+        Index->>Index: Persist to index.db
+        Index-->>Store: success
+        
+        Note over Store: Clear WAL after successful recovery
+        Store->>WAL: truncate()
+        WAL->>WAL: Clear wal.log
+        WAL-->>Store: success
+        
+    else WAL is empty (clean shutdown)
+        WAL-->>Store: Empty list []
+        Note over Store: No recovery needed
+    end
+    
+    Note over Store: Start background checkpoint thread
+    Store->>Store: Start checkpoint_thread
+    
+    Store-->>App: KVStore instance ready
+    deactivate WAL
+    deactivate DataFile
+    deactivate Index
+    
+    Note over Store,App: System ready to accept operations
+```
+
+**Recovery Process:**
+
+1. **Component Initialization**: Create WAL, DataFile, and Index instances
+2. **Load Persisted Index**: Load the last checkpointed index from `index.db`
+3. **Check WAL**: Read all entries from `wal.log`
+4. **Replay Operations**: If WAL has entries (crash occurred):
+   - For each PUT: Append to data file and update index
+   - For each DELETE: Remove from index
+5. **Save Index**: Persist the recovered index to disk
+6. **Truncate WAL**: Clear the WAL since all operations are now in the index
+7. **Start Checkpoint Thread**: Begin periodic index persistence
+
+**Recovery Scenarios:**
+
+- **Clean Shutdown**: WAL is empty, index is up-to-date → No replay needed
+- **Crash After WAL Write**: Operations in WAL but not in index → Replay all WAL entries
+- **Crash During Checkpoint**: Some operations in WAL, some in index → Replay all (idempotent for PUTs)
+
+**Durability Guarantees:**
+
+- **WAL First**: All operations are logged to WAL before data/index updates
+- **Crash Recovery**: On restart, WAL is replayed to restore state
+- **No Data Loss**: Any operation that was logged to WAL is guaranteed to be recovered
+- **Idempotent Replay**: PUT operations can be replayed multiple times safely
+- **Index Consistency**: Index always reflects all operations that made it to WAL
+
+## Locking Strategy
+
+The system uses a sophisticated **three-phase locking strategy** to optimize performance:
+
+### 1. Reader-Writer Lock (RWLock)
+- **Read operations**: Multiple readers can acquire the lock simultaneously
+- **Write operations**: Writers get exclusive access (no readers or other writers)
+- **Use case**: Protects data file reads/writes and index updates
+
+### 2. Separate WAL Lock
+- **Independent locking**: WAL writes use a separate `threading.Lock()`
+- **Problem solved**: In read-heavy workloads, writers would wait for all readers to finish before even logging to WAL
+- **Benefit**: WAL writes can proceed immediately without waiting for readers
+
+### 3. Async Replication (Non-blocking)
+- **After local commit**: Replication happens asynchronously after WAL and index updates
+- **Queue-based**: Operations are queued and processed by worker threads
+- **Non-blocking**: Client receives response immediately, replication happens in background
+
+### Write Operation Flow (Three-Phase):
+```
+Phase 1: Acquire wal_lock → Log to WAL → Release wal_lock
+Phase 2: Acquire write_lock → Update DataFile & Index → Release write_lock
+Phase 3: Enqueue to Replicator → Async replication to replicas
+```
+
+### Delete Operation Flow (Three-Phase with Optimization):
+```
+Phase 1: Acquire read_lock → Check existence → Release read_lock (early exit if not found)
+Phase 2: Acquire wal_lock → Log to WAL → Release wal_lock
+Phase 3: Acquire write_lock → Double-check & Update Index → Release write_lock
+Then: Enqueue to Replicator → Async replication to replicas (non-blocking)
+```
+
+**Why this matters:**
+- In a read-heavy workload, many readers might be active
+- Without separate locks: Writer waits for readers → WAL logging delayed → Other writers blocked
+- With separate locks: WAL logging proceeds immediately → Better write throughput
+- Async replication: No impact on write latency, eventual consistency across replicas
+- Durability preserved: WAL is written before data/index updates
+- Delete optimization: Read lock first allows concurrent existence checks
