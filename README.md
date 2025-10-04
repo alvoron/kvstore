@@ -1,5 +1,10 @@
 # kvstore
 
+[![Python application](https://github.com/alvoron/kvstore/actions/workflows/python-app.yml/badge.svg)](https://github.com/alvoron/kvstore/actions/workflows/python-app.yml)
+[![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Code style: flake8](https://img.shields.io/badge/code%20style-flake8-000000.svg)](https://flake8.pycqa.org/)
+
 A high-performance, thread-safe key-value store with Write-Ahead Logging (WAL), data replication, and network interface.
 
 ## Features
@@ -64,6 +69,17 @@ python -m kvstore.cli.client_cli delete <key>
 - `NOT_FOUND` - Key not found
 - `ERROR: <message>` - Error occurred
 
+## Architecture
+
+The architecture includes:
+
+- **Core Layer**: KVStore, WAL, DataFile, Index, RWLock
+- **Network Layer**: KVServer, KVClient, Protocol, ConnectionHandler
+- **Replication Layer**: Replicator, ReplicaManager, ReplicaNode
+- **Two-Phase Locking**: Separate WAL lock prevents write starvation
+
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation, UML diagrams, and sequence diagrams for all operations.
+
 ## Configuration
 
 All system parameters are centralized in `kvstore/utils/config.py`.
@@ -95,17 +111,6 @@ Deploy kvstore on Kubernetes with automatic pod restart and high availability:
 - **Manual Master Promotion**: ConfigMap-based master selection
 
 See [KUBERNETES.md](docs/KUBERNETES.md) for complete deployment guide, architecture diagram, failover scenarios, and troubleshooting.
-
-## Architecture
-
-The architecture includes:
-
-- **Core Layer**: KVStore, WAL, DataFile, Index, RWLock
-- **Network Layer**: KVServer, KVClient, Protocol, ConnectionHandler
-- **Replication Layer**: Replicator, ReplicaManager, ReplicaNode
-- **Two-Phase Locking**: Separate WAL lock prevents write starvation
-
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation, UML diagrams, and sequence diagrams for all operations.
 
 ## Testing
 
