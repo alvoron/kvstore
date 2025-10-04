@@ -1,6 +1,8 @@
 # kvstore
 
-[![Python application](https://github.com/alvoron/kvstore/actions/workflows/python-app.yml/badge.svg)](https://github.com/alvoron/kvstore/actions/workflows/python-app.yml)
+[![Build](https://github.com/alvoron/kvstore/actions/workflows/build.yml/badge.svg)](https://github.com/alvoron/kvstore/actions/workflows/build.yml)
+[![Lint](https://github.com/alvoron/kvstore/actions/workflows/lint.yml/badge.svg)](https://github.com/alvoron/kvstore/actions/workflows/lint.yml)
+[![Tests](https://github.com/alvoron/kvstore/actions/workflows/test.yml/badge.svg)](https://github.com/alvoron/kvstore/actions/workflows/test.yml)
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Code style: flake8](https://img.shields.io/badge/code%20style-flake8-000000.svg)](https://flake8.pycqa.org/)
