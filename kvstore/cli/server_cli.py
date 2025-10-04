@@ -1,6 +1,8 @@
 """Server CLI."""
 import argparse
+import sys
 from kvstore.network.server import KVServer
+from kvstore.core.store import DataDirectoryLockError
 from kvstore.utils.config import Config
 
 
@@ -34,14 +36,24 @@ def main():
         Config.REPLICA_ADDRESSES = replica_addresses
         print(f"Replication enabled with {len(replica_addresses)} replicas in {args.replication_mode} mode")
 
-    server = KVServer(args.host, args.port, args.data_dir, is_replica=args.replica)
+    try:
+        server = KVServer(args.host, args.port, args.data_dir, is_replica=args.replica)
 
-    if args.replica:
-        print(f"Starting replica node on {args.host}:{args.port}")
-    else:
-        print(f"Starting master node on {args.host}:{args.port}")
+        if args.replica:
+            print(f"Starting replica node on {args.host}:{args.port}")
+        else:
+            print(f"Starting master node on {args.host}:{args.port}")
 
-    server.start()
+        server.start()
+    except DataDirectoryLockError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nShutdown requested... exiting")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error starting server: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == '__main__':

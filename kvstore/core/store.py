@@ -1,5 +1,7 @@
 """Main KVStore implementation."""
 import threading
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +12,11 @@ from ..utils.rwlock import RWLock, ReadLock, WriteLock
 from ..utils.config import Config
 
 
+class DataDirectoryLockError(Exception):
+    """Raised when data directory is already locked by another process."""
+    pass
+
+
 class KVStore:
     """Core Key/Value store implementation."""
 
@@ -17,6 +24,10 @@ class KVStore:
         self.data_dir = Path(data_dir or Config.DATA_DIR)
         self.data_dir.mkdir(exist_ok=True)
         self.is_replica = is_replica
+        
+        # Acquire directory lock to prevent multiple processes
+        self.lockfile_path = self.data_dir / '.lock'
+        self._acquire_lock()
 
         # Initialize components
         self.wal = WAL(str(self.data_dir / Config.WAL_FILENAME))
@@ -76,6 +87,82 @@ class KVStore:
         except Exception as e:
             print(f"[KVStore] Failed to initialize replication: {e}")
             self.replicator = None
+
+    def _acquire_lock(self):
+        """Acquire an exclusive lock on the data directory."""
+        try:
+            # Try to create lockfile with exclusive creation
+            # If file exists, open will fail (on most systems)
+            if self.lockfile_path.exists():
+                # Check if it's a stale lock (process died)
+                try:
+                    with open(self.lockfile_path, 'r') as f:
+                        pid = int(f.read().strip())
+                    
+                    # Check if process is still running
+                    if self._is_process_running(pid):
+                        error_msg = (
+                            f"\n{'='*70}\n"
+                            f"ERROR: Data directory is already in use!\n"
+                            f"{'='*70}\n"
+                            f"Directory: {self.data_dir}\n"
+                            f"Used by process: {pid}\n"
+                            f"\n"
+                            f"Each KVStore instance must use a unique data directory.\n"
+                            f"\n"
+                            f"Solutions:\n"
+                            f"  1. Use a different --data-dir path\n"
+                            f"  2. Stop the other process first\n"
+                            f"  3. Check if the process is still running:\n"
+                            f"     Windows: tasklist | findstr {pid}\n"
+                            f"     Linux/Mac: ps -p {pid}\n"
+                            f"{'='*70}\n"
+                        )
+                        raise DataDirectoryLockError(error_msg)
+                    else:
+                        # Stale lock, remove it
+                        print(f"[KVStore] Removing stale lock file (PID {pid} not running)")
+                        self.lockfile_path.unlink()
+                except (ValueError, IOError):
+                    # Invalid lock file, remove it
+                    self.lockfile_path.unlink()
+            
+            # Write our PID to the lock file
+            with open(self.lockfile_path, 'w') as f:
+                f.write(str(os.getpid()))
+                
+        except DataDirectoryLockError:
+            raise
+        except Exception as e:
+            print(f"[KVStore] Warning: Could not acquire directory lock: {e}")
+
+    def _is_process_running(self, pid: int) -> bool:
+        """Check if a process with given PID is running."""
+        try:
+            if sys.platform == 'win32':
+                # Windows
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                PROCESS_QUERY_INFORMATION = 0x0400
+                handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid)
+                if handle:
+                    kernel32.CloseHandle(handle)
+                    return True
+                return False
+            else:
+                # Unix/Linux/Mac
+                os.kill(pid, 0)  # Signal 0 doesn't kill, just checks existence
+                return True
+        except (OSError, AttributeError):
+            return False
+
+    def _release_lock(self):
+        """Release the directory lock."""
+        try:
+            if self.lockfile_path.exists():
+                self.lockfile_path.unlink()
+        except Exception as e:
+            print(f"[KVStore] Warning: Could not release lock: {e}")
 
     def _recover(self):
         """Recover from crash by replaying WAL."""
@@ -246,3 +333,6 @@ class KVStore:
         self.index.save()
         self.wal.close()
         self.data_file.close()
+        
+        # Release directory lock
+        self._release_lock()
