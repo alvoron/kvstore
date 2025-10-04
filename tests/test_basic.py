@@ -344,6 +344,8 @@ class TestPersistence:
 
     def test_wal_recovery(self, tmp_path):
         """Test that WAL is replayed on recovery."""
+        import gc
+        
         # Create store and add data
         store1 = KVStore(str(tmp_path))
         store1.put(b"key1", b"value1")
@@ -351,6 +353,7 @@ class TestPersistence:
         # Simulate crash (don't close properly - just delete reference)
         # This leaves WAL with entries that haven't been checkpointed
         del store1
+        gc.collect()  # Force garbage collection to trigger __del__
 
         # Reopen - should replay WAL
         store2 = KVStore(str(tmp_path))

@@ -98,7 +98,14 @@ class KVStore:
                 try:
                     with open(self.lockfile_path, 'r') as f:
                         pid = int(f.read().strip())
-                    
+
+                    # Check if it's our own process (sequential usage in same process is OK)
+                    current_pid = os.getpid()
+                    if pid == current_pid:
+                        # Same process - this is OK, just reuse the lock
+                        # (happens when one store is closed and another opens in same process)
+                        return
+
                     # Check if process is still running
                     if self._is_process_running(pid):
                         error_msg = (
@@ -109,13 +116,6 @@ class KVStore:
                             f"Used by process: {pid}\n"
                             f"\n"
                             f"Each KVStore instance must use a unique data directory.\n"
-                            f"\n"
-                            f"Solutions:\n"
-                            f"  1. Use a different --data-dir path\n"
-                            f"  2. Stop the other process first\n"
-                            f"  3. Check if the process is still running:\n"
-                            f"     Windows: tasklist | findstr {pid}\n"
-                            f"     Linux/Mac: ps -p {pid}\n"
                             f"{'='*70}\n"
                         )
                         raise DataDirectoryLockError(error_msg)
@@ -126,11 +126,11 @@ class KVStore:
                 except (ValueError, IOError):
                     # Invalid lock file, remove it
                     self.lockfile_path.unlink()
-            
+
             # Write our PID to the lock file
             with open(self.lockfile_path, 'w') as f:
                 f.write(str(os.getpid()))
-                
+
         except DataDirectoryLockError:
             raise
         except Exception as e:
@@ -319,8 +319,23 @@ class KVStore:
             print(f"Error in delete: {e}")
             return False
 
+    def __del__(self):
+        """Destructor to ensure lock is released even if close() not called."""
+        try:
+            # Try to release lock if it exists
+            if hasattr(self, 'lockfile_path') and hasattr(self, 'running'):
+                if self.running:
+                    # close() wasn't called, do cleanup
+                    self.close()
+        except Exception:
+            # Ignore errors during cleanup
+            pass
+
     def close(self):
         """Clean shutdown."""
+        if not self.running:
+            return  # Already closed
+            
         self.running = False
         self._stop_event.set()  # Wake up the checkpoint thread immediately
         self.checkpoint_thread.join(timeout=1)  # Wait max 1 second
