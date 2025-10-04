@@ -20,6 +20,67 @@ class KVServer:
         self.protocol = Protocol()
         self.running = False
 
+    def _handle_replicate_put(self, key: bytes, value: bytes) -> bytes:
+        """Handle REPLICATE_PUT command."""
+        success = self.store.put(key, value)
+        return self.protocol.format_response(success)
+
+    def _handle_replicate_batchput(self, key: bytes, value: bytes) -> bytes:
+        """Handle REPLICATE_BATCHPUT command."""
+        keys = key.split(Config.BATCH_SEPARATOR)
+        values = value.split(Config.BATCH_SEPARATOR)
+        if len(keys) != len(values):
+            return self.protocol.format_error('Keys and values count mismatch')
+        unescaped_values = [self.protocol.unescape(v) for v in values]
+        success = self.store.batch_put(keys, unescaped_values)
+        return self.protocol.format_response(success)
+
+    def _handle_replicate_delete(self, key: bytes) -> bytes:
+        """Handle REPLICATE_DELETE command."""
+        success = self.store.delete(key)
+        return self.protocol.format_response(success)
+
+    def _handle_put(self, key: bytes, value: bytes) -> bytes:
+        """Handle PUT command."""
+        success = self.store.put(key, value)
+        return self.protocol.format_response(success)
+
+    def _handle_batchput(self, key: bytes, value: bytes) -> bytes:
+        """Handle BATCHPUT command."""
+        keys = key.split(Config.BATCH_SEPARATOR)
+        values = value.split(Config.BATCH_SEPARATOR)
+        if len(keys) != len(values):
+            return self.protocol.format_error('Keys and values count mismatch')
+        unescaped_values = [self.protocol.unescape(v) for v in values]
+        success = self.store.batch_put(keys, unescaped_values)
+        return self.protocol.format_response(success)
+
+    def _handle_read(self, key: bytes) -> bytes:
+        """Handle READ command."""
+        result = self.store.read(key)
+        if result is not None:
+            escaped_result = self.protocol.escape(result)
+            return self.protocol.format_response(True, escaped_result)
+        return self.protocol.format_not_found()
+
+    def _handle_readrange(self, start_key: bytes, end_key: bytes) -> bytes:
+        """Handle READRANGE command."""
+        results = self.store.read_key_range(start_key, end_key)
+        if results:
+            pairs = []
+            for k, v in sorted(results.items()):
+                pairs.extend([k, self.protocol.escape(v)])
+            response = Config.BATCH_SEPARATOR.join(pairs)
+            return self.protocol.format_response(True, response)
+        return self.protocol.format_not_found()
+
+    def _handle_delete(self, key: bytes) -> bytes:
+        """Handle DELETE command."""
+        success = self.store.delete(key)
+        if success:
+            return self.protocol.format_response(True)
+        return self.protocol.format_not_found()
+
     def _process_message(self, message: bytes) -> bytes:
         """Process client message."""
         try:
@@ -30,71 +91,29 @@ class KVServer:
                 if not self.is_replica:
                     return self.protocol.format_error('REPLICATE commands only accepted on replica nodes')
 
-                if command == 'REPLICATE_PUT':
-                    success = self.store.put(key, value)
-                    return self.protocol.format_response(success)
+                replicate_handlers = {
+                    'REPLICATE_PUT': lambda: self._handle_replicate_put(key, value),
+                    'REPLICATE_BATCHPUT': lambda: self._handle_replicate_batchput(key, value),
+                    'REPLICATE_DELETE': lambda: self._handle_replicate_delete(key),
+                }
+                handler = replicate_handlers.get(command)
+                if handler:
+                    return handler()
 
-                elif command == 'REPLICATE_BATCHPUT':
-                    keys = key.split(Config.BATCH_SEPARATOR)
-                    values = value.split(Config.BATCH_SEPARATOR)
-                    if len(keys) != len(values):
-                        return self.protocol.format_error('Keys and values count mismatch')
-                    # Unescape each value
-                    unescaped_values = [self.protocol.unescape(v) for v in values]
-                    success = self.store.batch_put(keys, unescaped_values)
-                    return self.protocol.format_response(success)
+            # Handle regular commands
+            command_handlers = {
+                'PUT': lambda: self._handle_put(key, value),
+                'BATCHPUT': lambda: self._handle_batchput(key, value),
+                'READ': lambda: self._handle_read(key),
+                'READRANGE': lambda: self._handle_readrange(key, value),
+                'DELETE': lambda: self._handle_delete(key),
+            }
 
-                elif command == 'REPLICATE_DELETE':
-                    success = self.store.delete(key)
-                    return self.protocol.format_response(success)
+            handler = command_handlers.get(command)
+            if handler:
+                return handler()
 
-            if command == 'PUT':
-                success = self.store.put(key, value)
-                return self.protocol.format_response(success)
-
-            elif command == 'BATCHPUT':
-                # Parse keys and values separated by Config.BATCH_SEPARATOR
-                keys = key.split(Config.BATCH_SEPARATOR)
-                values = value.split(Config.BATCH_SEPARATOR)
-                if len(keys) != len(values):
-                    return self.protocol.format_error('Keys and values count mismatch')
-                # Unescape each value
-                unescaped_values = [self.protocol.unescape(v) for v in values]
-                success = self.store.batch_put(keys, unescaped_values)
-                return self.protocol.format_response(success)
-
-            elif command == 'READ':
-                result = self.store.read(key)
-                if result is not None:
-                    # Escape the value before sending
-                    escaped_result = self.protocol.escape(result)
-                    return self.protocol.format_response(True, escaped_result)
-                return self.protocol.format_not_found()
-
-            elif command == 'READRANGE':
-                # value contains end_key for READRANGE
-                start_key = key
-                end_key = value
-                results = self.store.read_key_range(start_key, end_key)
-                if results:
-                    # Format: key1||value1||key2||value2||...
-                    pairs = []
-                    for k, v in sorted(results.items()):
-                        # Escape each value before sending
-                        pairs.extend([k, self.protocol.escape(v)])
-                    response = Config.BATCH_SEPARATOR.join(pairs)
-                    return self.protocol.format_response(True, response)
-                return self.protocol.format_not_found()
-
-            elif command == 'DELETE':
-                success = self.store.delete(key)
-                if success:
-                    return self.protocol.format_response(True)
-                return self.protocol.format_not_found()
-
-            else:
-                # Unknown command
-                return self.protocol.format_error(f'Unknown command: {command}')
+            return self.protocol.format_error(f'Unknown command: {command}')
 
         except ValueError as e:
             return self.protocol.format_error(str(e))
