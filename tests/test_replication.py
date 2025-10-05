@@ -398,18 +398,21 @@ class TestEndToEndReplication:
                     f"Replica on port {port} mismatch for {key}"
 
     def test_replica_read_only(self, replica_servers, replica_ports):
-        """Test that replicas accept REPLICATE commands but regular writes work."""
+        """Test that replicas reject direct write commands from clients."""
         # Connect to replica
         replica_client = KVClient(host='localhost', port=replica_ports[0])
 
-        # Direct write to replica should work (it's still a kvstore)
-        # But in production, clients should only write to master
+        # Direct write to replica should be rejected (read-only)
         result = replica_client.put('direct_key', 'direct_value')
-        assert result is True
+        assert result is False  # Write should fail on replica
 
-        # Verify it's stored
-        value = replica_client.read('direct_key')
-        assert value == 'direct_value'
+        # Direct delete should also be rejected
+        result = replica_client.delete('nonexistent_key')
+        assert result is False  # Delete should fail on replica
+
+        # But reads should still work (replicas are readable)
+        value = replica_client.read('nonexistent_key')
+        assert value is None  # Should return None for non-existent key
 
     def test_replication_with_range_query(self, master_server, replica_servers, replica_ports):
         """Test range queries work on replicated data."""

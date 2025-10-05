@@ -115,120 +115,6 @@ All replication settings are in `kvstore/utils/config.py`:
 | `REPLICATION_HEALTH_CHECK_INTERVAL` | int | `30` | Seconds between health checks |
 | `REPLICATION_TIMEOUT` | float | `5.0` | Socket timeout for replication (seconds) |
 
-### Programmatic Configuration
-
-```python
-from kvstore.utils.config import Config
-from kvstore.network.server import KVServer
-
-# Configure replication
-Config.REPLICATION_ENABLED = True
-Config.REPLICATION_MODE = 'async'
-Config.REPLICA_ADDRESSES = [
-    ('replica1.example.com', 5556),
-    ('replica2.example.com', 5557),
-]
-
-# Start master server
-master = KVServer(host='0.0.0.0', port=5555, is_replica=False)
-master.start()
-```
-
-### CLI Configuration
-
-#### Master Node with Replicas
-
-```bash
-# Start master with two replicas in async mode
-python -m kvstore.cli.server_cli \
-  --host 0.0.0.0 \
-  --port 5555 \
-  --replicas localhost:5556,localhost:5557 \
-  --replication-mode async
-
-# Start master with synchronous replication
-python -m kvstore.cli.server_cli \
-  --host 0.0.0.0 \
-  --port 5555 \
-  --replicas localhost:5556,localhost:5557 \
-  --replication-mode sync
-```
-
-#### Replica Nodes
-
-```bash
-# Start first replica
-python -m kvstore.cli.server_cli \
-  --host 0.0.0.0 \
-  --port 5556 \
-  --data-dir ./replica1_data \
-  --replica
-
-# Start second replica
-python -m kvstore.cli.server_cli \
-  --host 0.0.0.0 \
-  --port 5557 \
-  --data-dir ./replica2_data \
-  --replica
-```
-
-## Usage Examples
-
-### Basic Setup
-
-1. **Start Replica Nodes First**:
-```bash
-# Terminal 1 - Replica 1
-python -m kvstore.cli.server_cli --port 5556 --data-dir ./replica1 --replica
-
-# Terminal 2 - Replica 2
-python -m kvstore.cli.server_cli --port 5557 --data-dir ./replica2 --replica
-```
-
-2. **Start Master Node**:
-```bash
-# Terminal 3 - Master
-python -m kvstore.cli.server_cli --port 5555 --replicas localhost:5556,localhost:5557
-```
-
-3. **Use Client Normally**:
-```bash
-# All operations go to master
-python -m kvstore.cli.client_cli put mykey myvalue
-python -m kvstore.cli.client_cli read mykey
-
-# Check replica has the data
-python -m kvstore.cli.client_cli --port 5556 read mykey
-```
-
-### Production Setup
-
-#### Three-Node Cluster
-
-```bash
-# Node 1 - Master (server1.prod)
-python -m kvstore.cli.server_cli \
-  --host 0.0.0.0 \
-  --port 5555 \
-  --data-dir /var/lib/kvstore/master \
-  --replicas server2.prod:5555,server3.prod:5555 \
-  --replication-mode async
-
-# Node 2 - Replica 1 (server2.prod)
-python -m kvstore.cli.server_cli \
-  --host 0.0.0.0 \
-  --port 5555 \
-  --data-dir /var/lib/kvstore/replica1 \
-  --replica
-
-# Node 3 - Replica 2 (server3.prod)
-python -m kvstore.cli.server_cli \
-  --host 0.0.0.0 \
-  --port 5555 \
-  --data-dir /var/lib/kvstore/replica2 \
-  --replica
-```
-
 ## Replication Protocol
 
 ### REPLICATE Commands
@@ -265,11 +151,6 @@ Master nodes send `REPLICATE` commands to replica nodes:
 - Applications tolerating eventual consistency
 - Non-critical data where small data loss is acceptable
 
-**Example**:
-```python
-Config.REPLICATION_MODE = 'async'
-```
-
 ### Synchronous Replication
 
 **Characteristics**:
@@ -285,33 +166,24 @@ Config.REPLICATION_MODE = 'async'
 - Systems with strict durability requirements
 - Low write volume applications
 
-**Example**:
-```python
-Config.REPLICATION_MODE = 'sync'
-```
-
 ## Health Monitoring
 
 ### Automatic Health Checks
 
 - Replicas are monitored passively based on replication success/failure
 - After `REPLICATION_MAX_FAILURES` consecutive failures, replica marked unhealthy
-- Unhealthy replicas are skipped for subsequent replications
-- Replica marked healthy again after first successful replication
+- **Unhealthy replicas are skipped** for subsequent replications
+- ⚠️ **Current Limitation**: Unhealthy replicas do **not** automatically recover
+  - Once marked unhealthy, replica remains unhealthy until master restart
+  - No active health checks or recovery mechanism in current implementation
+- Replica health resets when master restarts and discovers replicas again
 
-### Health Status
+### Manual Recovery
 
-```python
-# Get replication status (programmatic access)
-if server.store.replicator:
-    stats = server.store.replicator.get_stats()
-    print(f"Successful replications: {stats['successful_replications']}")
-    print(f"Failed replications: {stats['failed_replications']}")
-    print(f"Queue size: {stats['queue_size']}")
-    
-    replica_status = server.store.replica_manager.get_status()
-    print(f"Healthy replicas: {replica_status['healthy_replicas']}/{replica_status['total_replicas']}")
-```
+To restore an unhealthy replica:
+1. Fix the replica node issue (restart, network, etc.)
+2. Restart the master node to reset replica health status
+3. Alternative: Restart replica and manually sync missed data
 
 ## Failure Scenarios
 
@@ -321,13 +193,14 @@ if server.store.replicator:
 1. Master detects failure when trying to replicate
 2. After 3 consecutive failures, replica marked unhealthy
 3. Master continues operating, serving reads/writes normally
-4. Operations queued for retry (up to max retries)
-5. When replica recovers, operations resume
+4. **Replica is permanently skipped** until manual intervention
+5. Operations are not queued for that replica
 
 **Recovery**:
-- Restart replica node
-- First successful replication marks it healthy again
-- Missed operations may need manual sync (see Recovery section)
+- Fix the replica node (restart, fix network, etc.)
+- Restart the **master node** to reset health monitoring
+- Alternative: Manually sync missed data from master to replica
+- ⚠️ **No automatic recovery** in current implementation
 
 ### Master Node Failure
 
@@ -356,199 +229,25 @@ if server.store.replicator:
 - Queued operations replicate to replicas
 - Replicas marked healthy after success
 
-## Performance Characteristics
-
-### Async Mode Performance
-
-| Operation | Master Latency | Notes |
-|-----------|---------------|-------|
-| PUT | ~1-2ms | WAL + local update only |
-| BATCH_PUT | ~2-5ms | Depends on batch size |
-| READ | <1ms | No replication overhead |
-| DELETE | ~1-2ms | WAL + index update only |
-
-**Replication lag**: Typically 10-50ms depending on network
-
-### Sync Mode Performance
-
-| Operation | Master Latency | Notes |
-|-----------|---------------|-------|
-| PUT | ~5-20ms | Includes replica round-trip |
-| BATCH_PUT | ~10-50ms | Multiplied by batch size |
-| READ | <1ms | No replication overhead |
-| DELETE | ~5-20ms | Includes replica round-trip |
-
-**Factors affecting latency**:
-- Network latency to replicas
-- Number of replicas
-- Replica load
-
-### Scalability
-
-- **Write throughput**: Limited by master node (single writer)
-- **Read throughput**: Scales linearly with replicas (read from replicas)
-- **Replication overhead**: ~10-20% CPU on master (async mode)
-- **Network bandwidth**: Each write operation sent to N replicas
-
-## Advanced Topics
-
-### Manual Replica Synchronization
-
-If a replica falls too far behind, manual sync may be needed:
-
-```bash
-# 1. Stop replica
-# 2. Copy data files from master
-scp master:/var/lib/kvstore/master/*.db replica:/var/lib/kvstore/replica/
-
-# 3. Restart replica
-python -m kvstore.cli.server_cli --port 5556 --data-dir /var/lib/kvstore/replica --replica
-```
-
-### Monitoring Replication Lag
-
-```python
-# Custom monitoring script
-import socket
-import time
-
-def check_replication():
-    # Write to master with timestamp
-    master = socket.create_connection(('master', 5555))
-    timestamp = str(time.time()).encode()
-    master.sendall(b'PUT repl_check ' + timestamp + b'\n')
-    master.recv(1024)
-    master.close()
-    
-    # Read from replica
-    time.sleep(0.1)  # Allow replication
-    replica = socket.create_connection(('replica', 5556))
-    replica.sendall(b'READ repl_check\n')
-    result = replica.recv(1024)
-    replica.close()
-    
-    if result == timestamp:
-        print("Replica in sync")
-    else:
-        print("Replica lagging")
-
-check_replication()
-```
-
-### Read from Replicas
-
-To distribute read load, configure clients to read from replicas:
-
-```python
-from kvstore.network.client import KVClient
-
-# Write to master
-master_client = KVClient(host='master', port=5555)
-master_client.put('mykey', 'myvalue')
-
-# Read from replica (eventual consistency)
-replica_client = KVClient(host='replica1', port=5556)
-value = replica_client.read('mykey')  # May lag slightly in async mode
-```
-
-## Best Practices
-
-### Production Recommendations
-
-1. **Use Async Mode**: For most workloads, async provides best performance
-2. **Monitor Health**: Implement monitoring for replica health status
-3. **Network Reliability**: Ensure stable network between master and replicas
-4. **Replica Capacity**: Size replicas same as master for failover capability
-5. **Regular Backups**: Replication is not a backup solution
-6. **Test Failover**: Practice promoting replicas to master
-7. **Geographic Distribution**: Consider network latency when placing replicas
-
-### Configuration Tuning
-
-```python
-# High-throughput workload
-Config.REPLICATION_QUEUE_SIZE = 100000  # Large queue
-Config.REPLICATION_MAX_RETRIES = 5      # More retries
-Config.REPLICATION_TIMEOUT = 2.0        # Lower timeout
-
-# Strong consistency workload
-Config.REPLICATION_MODE = 'sync'
-Config.REPLICATION_TIMEOUT = 10.0       # Higher timeout
-Config.REPLICATION_MAX_FAILURES = 1     # Strict health checks
-
-# Network-constrained environment
-Config.REPLICATION_TIMEOUT = 30.0       # Generous timeout
-Config.REPLICATION_MAX_FAILURES = 10    # Tolerate flaky network
-```
-
-## Troubleshooting
-
-### Replica Not Receiving Updates
-
-**Symptoms**: Replica data doesn't match master
-
-**Checks**:
-1. Verify replica is running with `--replica` flag
-2. Check master logs for replication errors
-3. Verify network connectivity: `telnet replica_host replica_port`
-4. Check replica is marked healthy in master
-
-**Solution**:
-```bash
-# Check if replica accepts connections
-telnet localhost 5556
-
-# Manual test replication command
-echo "REPLICATE PUT testkey testvalue" | nc localhost 5556
-# Should return "OK"
-```
-
-### Replication Queue Full
-
-**Symptoms**: Master logs show "Queue full, dropped operation"
-
-**Cause**: Replicas too slow or unreachable, queue filled up
-
-**Solution**:
-```python
-# Increase queue size
-Config.REPLICATION_QUEUE_SIZE = 100000  # Default: 10000
-
-# Or reduce retry limit to free queue faster
-Config.REPLICATION_MAX_RETRIES = 1  # Default: 3
-```
-
-### High Replication Lag
-
-**Symptoms**: Replicas significantly behind master
-
-**Causes**:
-- Network latency
-- Replica overloaded
-- Insufficient worker threads
-
-**Solution**:
-```python
-# Increase worker threads in Replicator.__init__
-self.num_workers = 4  # Default: 2
-```
-
 ## Limitations
 
 Current implementation limitations:
 
 1. **No Automatic Failover**: Replica promotion is manual
-2. **Master-Slave Only**: No multi-master replication
-3. **No Conflict Resolution**: Last-write-wins (not applicable with single master)
-4. **No Cascading Replication**: Replicas cannot replicate to other replicas
-5. **No Read Preference**: Client must explicitly choose master or replica
-6. **No Partial Replication**: All data replicated, no filtering
-7. **No Replication Lag Metrics**: Must implement custom monitoring
+2. **No Automatic Recovery**: Unhealthy replicas don't auto-recover; require master restart
+3. **Master-Slave Only**: No multi-master replication
+4. **No Conflict Resolution**: Last-write-wins (not applicable with single master)
+5. **No Cascading Replication**: Replicas cannot replicate to other replicas
+6. **No Read Preference**: Client must explicitly choose master or replica
+7. **No Partial Replication**: All data replicated, no filtering
+8. **No Replication Lag Metrics**: Must implement custom monitoring
+9. **No Active Health Checks**: Passive failure detection only
 
 ## Future Enhancements
 
 Potential improvements for future versions:
 
+- **Active health checks with automatic recovery** for unhealthy replicas
 - Automatic failover and leader election
 - Multi-master replication with conflict resolution
 - Cascading replication (replica-to-replica)

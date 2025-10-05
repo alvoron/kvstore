@@ -42,11 +42,15 @@ class KVServer:
 
     def _handle_put(self, key: bytes, value: bytes) -> bytes:
         """Handle PUT command."""
+        if self.is_replica:
+            return self.protocol.format_error('Replica nodes are read-only. Please send writes to the master node.')
         success = self.store.put(key, value)
         return self.protocol.format_response(success)
 
     def _handle_batchput(self, key: bytes, value: bytes) -> bytes:
         """Handle BATCHPUT command."""
+        if self.is_replica:
+            return self.protocol.format_error('Replica nodes are read-only. Please send writes to the master node.')
         keys = key.split(Config.BATCH_SEPARATOR)
         values = value.split(Config.BATCH_SEPARATOR)
         if len(keys) != len(values):
@@ -76,6 +80,8 @@ class KVServer:
 
     def _handle_delete(self, key: bytes) -> bytes:
         """Handle DELETE command."""
+        if self.is_replica:
+            return self.protocol.format_error('Replica nodes are read-only. Please send writes to the master node.')
         success = self.store.delete(key)
         if success:
             return self.protocol.format_response(True)
