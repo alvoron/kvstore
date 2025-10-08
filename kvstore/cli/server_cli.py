@@ -6,6 +6,31 @@ from kvstore.core.store import DataDirectoryLockError
 from kvstore.utils.config import Config
 
 
+def parse_replica_addresses(replicas_arg: str) -> list[tuple[str, int]]:
+    """
+    Parse comma-separated replica addresses.
+
+    Args:
+        replicas_arg: Comma-separated list of host:port addresses
+
+    Returns:
+        List of (host, port) tuples
+    """
+    replica_addresses = []
+    for addr in replicas_arg.split(','):
+        addr = addr.strip()
+        if ':' in addr:
+            host, port = addr.split(':', 1)
+            try:
+                replica_addresses.append((host, int(port)))
+            except ValueError:
+                print(f"Warning: Invalid port number in '{addr}' (expected host:port)", file=sys.stderr)
+        else:
+            print(f"Warning: Invalid replica address format: '{addr}' (expected host:port)", file=sys.stderr)
+    
+    return replica_addresses
+
+
 def main():
     """Main entry point for server CLI."""
     parser = argparse.ArgumentParser(description='KVStore Server')
@@ -22,27 +47,16 @@ def main():
     if args.replicas and not args.replica:
         Config.REPLICATION_ENABLED = True
         Config.REPLICATION_MODE = args.replication_mode
-
-        # Parse replica addresses
-        replica_addresses = []
-        for addr in args.replicas.split(','):
-            addr = addr.strip()
-            if ':' in addr:
-                host, port = addr.split(':', 1)
-                replica_addresses.append((host, int(port)))
-            else:
-                print(f"Warning: Invalid replica address format: {addr} (expected host:port)")
-
-        Config.REPLICA_ADDRESSES = replica_addresses
-        print(f"Replication enabled with {len(replica_addresses)} replicas in {args.replication_mode} mode")
+        Config.REPLICA_ADDRESSES = parse_replica_addresses(args.replicas)
+        
+        replica_count = len(Config.REPLICA_ADDRESSES)
+        print(f"Replication enabled with {replica_count} replica(s) in {args.replication_mode} mode")
 
     try:
         server = KVServer(args.host, args.port, args.data_dir, is_replica=args.replica)
-
-        if args.replica:
-            print(f"Starting replica node on {args.host}:{args.port}")
-        else:
-            print(f"Starting master node on {args.host}:{args.port}")
+        
+        node_type = "replica" if args.replica else "master"
+        print(f"Starting {node_type} node on {args.host}:{args.port}")
 
         server.start()
     except DataDirectoryLockError as e:
