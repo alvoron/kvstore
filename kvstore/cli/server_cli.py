@@ -9,13 +9,13 @@ from kvstore.utils.config import Config
 def main():
     """Main entry point for server CLI."""
     parser = argparse.ArgumentParser(description='KVStore Server')
-    parser.add_argument('--host', default='0.0.0.0', help='Server host')
-    parser.add_argument('--port', type=int, default=5555, help='Server port')
-    parser.add_argument('--data-dir', default='./kvstore_data', help='Data directory')
+    parser.add_argument('--host', default=Config.HOST, help=f'Server host (default: {Config.HOST})')
+    parser.add_argument('--port', type=int, default=Config.PORT, help=f'Server port (default: {Config.PORT})')
+    parser.add_argument('--data-dir', default=Config.DATA_DIR, help=f'Data directory (default: {Config.DATA_DIR})')
     parser.add_argument('--replica', action='store_true', help='Run as replica node (accepts REPLICATE commands)')
     parser.add_argument('--replicas', help='Comma-separated list of replica addresses (host:port,host:port,...)')
-    parser.add_argument('--replication-mode', choices=['async', 'sync'], default='async',
-                        help='Replication mode: async (default) or sync')
+    parser.add_argument('--replication-mode', choices=['async', 'sync'], default=Config.REPLICATION_MODE,
+                        help=f'Replication mode: async (default) or sync')
     args = parser.parse_args()
 
     # Configure replication if replicas are specified

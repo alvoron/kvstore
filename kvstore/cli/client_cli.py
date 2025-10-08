@@ -2,6 +2,7 @@
 import argparse
 import sys
 from kvstore.network.client import KVClient, KVClientError
+from kvstore.utils.config import Config
 
 
 def handle_put(client, key, value):
@@ -60,8 +61,8 @@ def handle_delete(client, key, value):
 def main():
     """Main entry point for client CLI."""
     parser = argparse.ArgumentParser(description='KVStore Client')
-    parser.add_argument('--host', default='localhost', help='Server host')
-    parser.add_argument('--port', type=int, default=5555, help='Server port')
+    parser.add_argument('--host', default=Config.CLIENT_HOST, help=f'Server host (default: {Config.CLIENT_HOST})')
+    parser.add_argument('--port', type=int, default=Config.CLIENT_PORT, help=f'Server port (default: {Config.CLIENT_PORT})')
     parser.add_argument('command', choices=['put', 'read', 'delete', 'batchput', 'readrange'],
                         help='Command to execute')
     parser.add_argument('key',
