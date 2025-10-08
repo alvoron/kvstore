@@ -23,7 +23,7 @@ class WAL:
             'timestamp': time.time()
         }
         serialized = pickle.dumps(entry)
-        length = struct.pack('!I', len(serialized))
+        length = struct.pack(Config.LENGTH_FORMAT, len(serialized))
         self.file.write(length + serialized)
         os.fsync(self.file.fileno())  # Force write to disk
 
@@ -35,10 +35,10 @@ class WAL:
         entries = []
         with open(self.path, 'rb') as f:
             while True:
-                length_bytes = f.read(4)
+                length_bytes = f.read(Config.LENGTH_SIZE)
                 if not length_bytes:
                     break
-                length = struct.unpack('!I', length_bytes)[0]
+                length = struct.unpack(Config.LENGTH_FORMAT, length_bytes)[0]
                 entry_bytes = f.read(length)
                 entries.append(pickle.loads(entry_bytes))
         return entries

@@ -3,6 +3,7 @@ import os
 import mmap
 import struct
 from typing import Tuple
+from ..utils.config import Config
 
 
 class DataFile:
@@ -29,8 +30,8 @@ class DataFile:
         Returns (offset, length) for indexing.
         """
         # Format: [key_len(4)][key][value_len(4)][value]
-        key_len = struct.pack('!I', len(key))
-        value_len = struct.pack('!I', len(value))
+        key_len = struct.pack(Config.LENGTH_FORMAT, len(key))
+        value_len = struct.pack(Config.LENGTH_FORMAT, len(value))
 
         offset = self.size
         data = key_len + key + value_len + value
@@ -47,19 +48,19 @@ class DataFile:
     def read(self, offset: int) -> Tuple[bytes, bytes]:
         """Read key-value pair at given offset."""
         if not self._mmap:
-            raise ValueError("Cannot read from empty file")
+            raise ValueError("Memory map not available (file may be empty or not initialized)")
 
         # Read key length
-        key_len = struct.unpack('!I', self._mmap[offset:offset+4])[0]
-        offset += 4
+        key_len = struct.unpack(Config.LENGTH_FORMAT, self._mmap[offset:offset+Config.LENGTH_SIZE])[0]
+        offset += Config.LENGTH_SIZE
 
         # Read key
         key = bytes(self._mmap[offset:offset+key_len])
         offset += key_len
 
         # Read value length
-        value_len = struct.unpack('!I', self._mmap[offset:offset+4])[0]
-        offset += 4
+        value_len = struct.unpack(Config.LENGTH_FORMAT, self._mmap[offset:offset+Config.LENGTH_SIZE])[0]
+        offset += Config.LENGTH_SIZE
 
         # Read value
         value = bytes(self._mmap[offset:offset+value_len])

@@ -24,6 +24,10 @@ class Config:
     MAX_WAL_SIZE = 100 * 1024 * 1024  # 100MB
     WAL_BUFFER_SIZE = 0  # 0 = unbuffered (immediate flush)
 
+    # Binary format constants
+    LENGTH_FORMAT = '!I'  # Network byte order (big-endian), unsigned int
+    LENGTH_SIZE = 4  # Size in bytes for length fields
+
     # Compaction settings
     COMPACTION_ENABLED = True  # Enable automatic background compaction
     COMPACTION_INTERVAL = 3600  # Seconds between compaction checks (1 hour)
