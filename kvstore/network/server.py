@@ -92,28 +92,26 @@ class KVServer:
         try:
             command, key, value = self.protocol.parse_command(message)
 
-            # Handle REPLICATE commands (only on replica nodes)
+            # Build command handlers based on node type
             if command.startswith('REPLICATE_'):
+                # Handle REPLICATE commands (only on replica nodes)
                 if not self.is_replica:
                     return self.protocol.format_error('REPLICATE commands only accepted on replica nodes')
 
-                replicate_handlers = {
+                command_handlers = {
                     'REPLICATE_PUT': lambda: self._handle_replicate_put(key, value),
                     'REPLICATE_BATCHPUT': lambda: self._handle_replicate_batchput(key, value),
                     'REPLICATE_DELETE': lambda: self._handle_replicate_delete(key),
                 }
-                handler = replicate_handlers.get(command)
-                if handler:
-                    return handler()
-
-            # Handle regular commands
-            command_handlers = {
-                'PUT': lambda: self._handle_put(key, value),
-                'BATCHPUT': lambda: self._handle_batchput(key, value),
-                'READ': lambda: self._handle_read(key),
-                'READRANGE': lambda: self._handle_readrange(key, value),
-                'DELETE': lambda: self._handle_delete(key),
-            }
+            else:
+                # Handle regular commands
+                command_handlers = {
+                    'PUT': lambda: self._handle_put(key, value),
+                    'BATCHPUT': lambda: self._handle_batchput(key, value),
+                    'READ': lambda: self._handle_read(key),
+                    'READRANGE': lambda: self._handle_readrange(key, value),
+                    'DELETE': lambda: self._handle_delete(key),
+                }
 
             handler = command_handlers.get(command)
             if handler:
