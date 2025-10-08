@@ -11,12 +11,14 @@ class RWLock:
     - Only one writer to hold the lock at a time
     - Writers have exclusive access (no readers or other writers)
 
-    This is a fair implementation that prevents starvation for both readers and writers.
+    This is a writer-preferring implementation that prevents writer starvation.
+    When a writer is waiting, new readers are blocked until the writer completes.
     """
 
     def __init__(self):
         self._readers = 0  # Number of active readers
         self._writer = False  # Whether a writer is active
+        self._writers_waiting = 0  # Number of writers waiting
         self._lock = threading.Lock()
         self._readers_ok = threading.Condition(self._lock)
         self._writers_ok = threading.Condition(self._lock)
@@ -24,8 +26,8 @@ class RWLock:
     def acquire_read(self):
         """Acquire read lock. Multiple readers can hold this simultaneously."""
         with self._lock:
-            # Wait while there's an active writer
-            while self._writer:
+            # Wait while there's an active writer or waiting writers
+            while self._writer or self._writers_waiting > 0:
                 self._readers_ok.wait()
             self._readers += 1
 
@@ -40,19 +42,25 @@ class RWLock:
     def acquire_write(self):
         """Acquire write lock. Only one writer can hold this, and no readers."""
         with self._lock:
-            # Wait while there are active readers or an active writer
-            while self._readers > 0 or self._writer:
-                self._writers_ok.wait()
-            self._writer = True
+            self._writers_waiting += 1
+            try:
+                # Wait while there are active readers or an active writer
+                while self._readers > 0 or self._writer:
+                    self._writers_ok.wait()
+                self._writer = True
+            finally:
+                self._writers_waiting -= 1
 
     def release_write(self):
         """Release write lock."""
         with self._lock:
             self._writer = False
-            # Notify waiting writers first (FIFO fairness)
-            self._writers_ok.notify()
-            # Then notify all waiting readers
-            self._readers_ok.notify_all()
+            # Notify waiting writers first (writer-preferring)
+            if self._writers_waiting > 0:
+                self._writers_ok.notify()
+            else:
+                # No waiting writers, wake all waiting readers
+                self._readers_ok.notify_all()
 
 
 class ReadLock:

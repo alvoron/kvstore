@@ -121,9 +121,11 @@ classDiagram
     
     class RWLock {
         -_readers: int
-        -_writers: int
-        -_read_ready: Condition
-        -_write_ready: Condition
+        -_writer: bool
+        -_writers_waiting: int
+        -_lock: Lock
+        -_readers_ok: Condition
+        -_writers_ok: Condition
         +acquire_read()
         +release_read()
         +acquire_write()
@@ -214,7 +216,7 @@ classDiagram
     
     %% Notes
     note for KVStore "Three-phase operations:<br/>1. wal_lock for WAL writes<br/>2. rwlock for data/index access<br/>3. replicator for async replication<br/>Allows concurrent reads<br/>Background checkpoint every 10 seconds"
-    note for RWLock "Multiple readers can hold lock simultaneously<br/>Writers get exclusive access"
+    note for RWLock "Writer-preferring lock:<br/>- Multiple readers concurrent<br/>- Writers get exclusive access<br/>- Waiting writers block new readers<br/>- Prevents writer starvation"
     note for WAL "Write-Ahead Log ensures durability<br/>Replayed on recovery<br/>Has separate lock for better concurrency"
     note for Index "In-memory hash index<br/>Periodically persisted to disk"
     note for Replicator "Async replication to replica nodes<br/>Queued operations with retry logic<br/>Separate worker threads"
@@ -259,6 +261,8 @@ sequenceDiagram
     Note over Store: PHASE 2: Data & Index Update
     Store->>WriteLock: acquire()
     activate WriteLock
+    
+    Note over WriteLock: Writer-preferring lock:<br/>If other writers waiting,<br/>blocks new readers
     
     Note over Store: Append to Data File
     Store->>DataFile: append(key, value)
@@ -341,6 +345,8 @@ sequenceDiagram
     Store->>Lock: acquire()
     activate Lock
     
+    Note over Lock: Multiple readers can<br/>acquire simultaneously<br/>UNLESS writers waiting
+    
     Note over Store: Lookup in In-Memory Index
     Store->>Index: get(key)
     Index->>Index: lookup index[key]
@@ -380,7 +386,7 @@ sequenceDiagram
 
 **Key Steps:**
 
-1. **Lock Acquisition**: Acquire read lock (allows concurrent reads - multiple readers simultaneously)
+1. **Lock Acquisition**: Acquire read lock (allows concurrent reads - multiple readers simultaneously, blocked if writers waiting)
 2. **Index Lookup**: Fast O(1) lookup in in-memory hash index
 3. **Get Offset**: Retrieve file offset and length for the key
 4. **Data Read**: Seek to offset and read from data file
@@ -391,7 +397,8 @@ sequenceDiagram
 **Performance Characteristics:**
 - **Fast lookups**: O(1) index lookup in memory
 - **True concurrent reads**: Multiple readers can hold the lock simultaneously (Reader-Writer Lock)
-- **Non-blocking reads**: Read operations don't block each other
+- **Writer-preferring**: New readers blocked when writers are waiting (prevents writer starvation)
+- **Non-blocking reads**: Read operations don't block each other (when no writers waiting)
 - **Single disk seek**: Direct access via offset, no scanning
 - **Key verification**: Extra safety check after reading from disk
 
@@ -423,6 +430,9 @@ sequenceDiagram
     Note over Store: PHASE 1: Check Existence
     Store->>ReadLock: acquire()
     activate ReadLock
+    
+    Note over ReadLock: Read lock acquired<br/>Blocked if writers waiting
+    
     Store->>Index: get(key)
     
     alt Key Found
@@ -443,6 +453,8 @@ sequenceDiagram
         Note over Store: PHASE 3: Index Update
         Store->>WriteLock: acquire()
         activate WriteLock
+        
+        Note over WriteLock: Writer-preferring:<br/>Waiting blocks new readers
         
         Note over Store: Double-check key still exists
         Store->>Index: get(key)
@@ -500,11 +512,11 @@ sequenceDiagram
 
 **Key Steps:**
 
-1. **Phase 1 - Read Lock**: Check if key exists (allows concurrent reads)
+1. **Phase 1 - Read Lock**: Check if key exists (allows concurrent reads, blocked if writers waiting)
    - If not found: Release lock and return NOT_FOUND immediately
 2. **Phase 2 - WAL Lock**: Log delete operation to WAL (doesn't wait for readers)
 3. **Release WAL Lock**: Other writers can now log to WAL
-4. **Phase 3 - Write Lock**: Acquire exclusive write lock
+4. **Phase 3 - Write Lock**: Acquire exclusive write lock (waiting blocks new readers - writer-preferring)
 5. **Double Check**: Verify key still exists (race condition protection)
    - If deleted by another thread: Release lock and return NOT_FOUND
 6. **Index Removal**: Remove key from in-memory index
@@ -513,10 +525,11 @@ sequenceDiagram
 9. **Response**: Return OK to client (replication happens asynchronously)
 
 **Three-Phase Locking Benefits:**
-- **Optimistic existence check**: Read lock first (fast, concurrent)
+- **Optimistic existence check**: Read lock first (fast, concurrent, but blocked if writers waiting)
 - **Early exit**: Return immediately if key doesn't exist (no WAL/write lock needed)
 - **WAL logging without blocking**: Separate lock for durability
 - **Race condition safety**: Double-check under write lock
+- **Writer-preferring**: Delete operations don't starve under read load
 - **Async replication**: Non-blocking replication after all locks released
 
 **Important Notes:**
@@ -644,9 +657,20 @@ sequenceDiagram
 The system uses a sophisticated **three-phase locking strategy** to optimize performance:
 
 ### 1. Reader-Writer Lock (RWLock)
+
+**Implementation**: Writer-preferring lock that prevents writer starvation
+
+**Behavior**:
 - **Read operations**: Multiple readers can acquire the lock simultaneously
 - **Write operations**: Writers get exclusive access (no readers or other writers)
+- **Writer priority**: When a writer is waiting, new readers are blocked until the writer completes
 - **Use case**: Protects data file reads/writes and index updates
+
+**Key Features**:
+- Tracks waiting writers with `_writers_waiting` counter
+- New readers check both active writer AND waiting writers before proceeding
+- Prevents writer starvation under continuous reader streams
+- Ensures bounded write latency in mixed read/write workloads
 
 ### 2. Separate WAL Lock
 - **Independent locking**: WAL writes use a separate `threading.Lock()`
