@@ -1,6 +1,7 @@
 """Client CLI."""
 import argparse
-from kvstore.network.client import KVClient
+import sys
+from kvstore.network.client import KVClient, KVClientError
 
 
 def handle_put(client, key, value):
@@ -81,7 +82,11 @@ def main():
 
     handler = handlers.get(args.command)
     if handler:
-        return handler(client, args.key, args.value)
+        try:
+            return handler(client, args.key, args.value)
+        except KVClientError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
     return 0
 
 

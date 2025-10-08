@@ -2,6 +2,12 @@
 import socket
 from typing import Optional
 from ..utils.config import Config
+from .protocol import Protocol
+
+
+class KVClientError(Exception):
+    """Client connection or communication error."""
+    pass
 
 
 class KVClient:
@@ -13,29 +19,47 @@ class KVClient:
 
     def _send_command(self, command: bytes) -> bytes:
         """Send command and receive response."""
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((self.host, self.port))
-            s.sendall(command + Config.MESSAGE_DELIMITER)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((self.host, self.port))
+                s.sendall(command + Config.MESSAGE_DELIMITER)
 
-            # Read response until we get MESSAGE_DELIMITER
-            buffer = b''
-            while Config.MESSAGE_DELIMITER not in buffer:
-                chunk = s.recv(Config.CLIENT_RECV_BUFFER)
-                if not chunk:
-                    break
-                buffer += chunk
+                # Read response until we get MESSAGE_DELIMITER
+                buffer = b''
+                while Config.MESSAGE_DELIMITER not in buffer:
+                    chunk = s.recv(Config.CLIENT_RECV_BUFFER)
+                    if not chunk:
+                        break
+                    buffer += chunk
 
-            # Extract the response (everything before the delimiter)
-            if Config.MESSAGE_DELIMITER in buffer:
-                response, _ = buffer.split(Config.MESSAGE_DELIMITER, 1)
-            else:
-                response = buffer
+                # Extract the response (everything before the delimiter)
+                if Config.MESSAGE_DELIMITER in buffer:
+                    response, _ = buffer.split(Config.MESSAGE_DELIMITER, 1)
+                else:
+                    response = buffer
 
-            return response.strip()
+                return response.strip()
+        except ConnectionRefusedError:
+            raise KVClientError(
+                f"Cannot connect to server at {self.host}:{self.port}. "
+                f"Is the server running?"
+            )
+        except socket.timeout:
+            raise KVClientError(
+                f"Connection timeout to {self.host}:{self.port}. "
+                f"Server may be overloaded or unreachable."
+            )
+        except socket.gaierror as e:
+            raise KVClientError(
+                f"Cannot resolve hostname '{self.host}': {e}"
+            )
+        except OSError as e:
+            raise KVClientError(
+                f"Network error while connecting to {self.host}:{self.port}: {e}"
+            )
 
     def put(self, key: str, value: str) -> bool:
         """Put key-value pair."""
-        from .protocol import Protocol
         # Build command purely with bytes - escape the value bytes
         escaped_value = Protocol.escape(value.encode())
         command = b'PUT ' + key.encode() + b' ' + escaped_value
@@ -47,7 +71,6 @@ class KVClient:
         if len(keys) != len(values):
             raise ValueError("Keys and values must have the same length")
 
-        from .protocol import Protocol
         # Escape each value before joining - keep as bytes
         escaped_values = [Protocol.escape(v.encode()) for v in values]
 
@@ -60,7 +83,6 @@ class KVClient:
 
     def read(self, key: str) -> Optional[str]:
         """Read value for key."""
-        from .protocol import Protocol
         command = f'READ {key}'.encode()
         response = self._send_command(command)
         if response == b'NOT_FOUND':
@@ -70,7 +92,6 @@ class KVClient:
 
     def read_key_range(self, start_key: str, end_key: str) -> dict[str, str]:
         """Read all key-value pairs in the range [start_key, end_key]."""
-        from .protocol import Protocol
         command = f'READRANGE {start_key} {end_key}'.encode()
         response = self._send_command(command)
 

@@ -3,6 +3,6 @@ __version__ = '1.0.0'
 
 from .core.store import KVStore, DataDirectoryLockError
 from .network.server import KVServer
-from .network.client import KVClient
+from .network.client import KVClient, KVClientError
 
-__all__ = ['KVStore', 'KVServer', 'KVClient', 'DataDirectoryLockError']
+__all__ = ['KVStore', 'KVServer', 'KVClient', 'DataDirectoryLockError', 'KVClientError']
