@@ -24,6 +24,12 @@ class Config:
     MAX_WAL_SIZE = 100 * 1024 * 1024  # 100MB
     WAL_BUFFER_SIZE = 0  # 0 = unbuffered (immediate flush)
 
+    # Compaction settings
+    COMPACTION_ENABLED = True  # Enable automatic background compaction
+    COMPACTION_INTERVAL = 3600  # Seconds between compaction checks (1 hour)
+    COMPACTION_THRESHOLD = 0.3  # Compact when dead space ratio >= 30%
+    COMPACTION_MIN_FILE_SIZE = 10 * 1024 * 1024  # Only compact if file >= 10MB
+
     # Network settings
     CONNECTION_RECV_BUFFER = 4096  # Buffer size for connection handler
     MESSAGE_DELIMITER = b'\n'  # Message delimiter in protocol
